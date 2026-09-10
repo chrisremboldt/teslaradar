@@ -1,4 +1,14 @@
-export const LOCATION_POLL_MS = 5 * 60 * 1000;
+/** GPS poll cadence. Visibility-resume and Refresh now still request immediately. */
+export const LOCATION_POLL_MS = 60_000;
+/** Do not reuse a 30s+ cached fix on a 1-minute poll. */
+export const GEO_MAXIMUM_AGE_MS = 15_000;
+export const GEO_TIMEOUT_MS = 15_000;
+/** Rolling window for ownship track heading. */
+export const TRACK_WINDOW_MS = 5 * 60 * 1000;
+/** Ignore GPS jitter shorter than this when averaging course. */
+export const TRACK_MIN_SEGMENT_M = 20;
+/** Drop fixes whose reported accuracy is this poor. */
+export const TRACK_MAX_ACCURACY_M = 200;
 export const RADAR_REFRESH_MS = 2 * 60 * 1000;
 export const LOCATION_STORAGE_KEY = "teslaradar:last-gps";
 export const PREFS_STORAGE_KEY = "teslaradar:prefs";

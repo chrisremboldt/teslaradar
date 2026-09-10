@@ -1,17 +1,18 @@
 # TeslaRadar
 
-Personal live weather radar for **Chris Remboldt**. A phone-first, dark, glanceable map that centers on wherever the browser says you are, overlays animated RainViewer radar, and follows device heading when Chromium exposes a compass.
+Personal live weather radar for **Chris Remboldt**. A phone-first, dark, glanceable map that centers on wherever the browser says you are, overlays animated RainViewer radar, and points the ownship triangle along a 5-minute averaged GPS track (device compass still drives heading-up and the compass badge when the car exposes one).
 
 Production target: [https://teslaradar.vercel.app](https://teslaradar.vercel.app)
 
 ## What it does
 
 - Requests `navigator.geolocation`, shows lat/lon, accuracy, and last-updated time.
-- Re-polls location every **5 minutes**, and again on tab visibility resume or **Refresh now**.
+- Re-polls location every **1 minute**, and again on tab visibility resume or **Refresh now**.
 - Persists the last successful GPS fix in `localStorage` so the first paint is not blank while GPS wakes.
 - Overlays animated RainViewer radar as a georeferenced canvas/`<img>` layer on a free OpenStreetMap raster basemap (darkened in MapLibre). Radar is not painted through MapLibre raster sources — Tesla Chromium’s WebGL/tile cache froze that path. No Mapbox or Carto token.
 - Plays the past ~2 hours of radar (10-minute steps). Pause/play is in the HUD. The footer playhead shows the current frame time and index; a quieter **Latest** line shows the newest RainViewer past frame’s clock time and relative age (data freshness, not the animation playhead).
-- Default map mode is **heading-up** (rotate with the device compass). Uses Device Orientation / `AbsoluteOrientationSensor` / `deviceorientationabsolute` when available. iOS needs a tap on **Enable compass**. If heading is missing, the map falls back to north-up and the HUD shows a muted “compass unavailable” note — the app still works. A control toggles north-up vs heading-up.
+- The ownship chevron uses a **5-minute circular-mean GPS track heading** (tiny / parked jitter is ignored). Until there is a meaningful move, the marker stays in the no-heading look. Device compass is optional: it still drives the compass badge, and heading-up prefers compass then falls back to track heading in the Tesla browser.
+- Default map mode is **heading-up** (rotate with the device compass, or GPS track if compass is missing). Uses Device Orientation / `AbsoluteOrientationSensor` / `deviceorientationabsolute` when available. iOS needs a tap on **Enable compass**. If both compass and track heading are missing, the map stays north-up and the HUD shows a muted “compass unavailable” note — the app still works. A control toggles north-up vs heading-up.
 - If location is denied or unavailable, you get a clear error plus labeled **DEMO** maps for Nashville, TN or Traverse City, MI (used only as a fallback, never as a silent substitute for a live fix).
 - **Follow me** is on for first paint and cold loads (prefs schema v2). Older `teslaradar:prefs` blobs that stored `followMe: false` from a pan are migrated once — follow is re-enabled, heading-up / animate-radar are kept. Panning or tapping Follow me off still sticks for the rest of that session; a hard refresh recenters. The control reads **Following** vs **Follow me**.
 
@@ -21,10 +22,11 @@ v1 location source is **Chromium browser APIs only**. Tesla Fleet API / OAuth is
 
 | Piece | How it works |
 | --- | --- |
-| Location | `navigator.geolocation.getCurrentPosition` in the browser. 5-minute interval + visibility + manual refresh. Coordinates never leave the device. |
+| Location | `navigator.geolocation.getCurrentPosition` in the browser. 1-minute interval + visibility + manual refresh. `maximumAge` is 15s so a poll is not served a stale 30s+ fix. Coordinates never leave the device. |
+| Ownship | Rolling in-memory GPS track (last 5 minutes). Chevron points at the distance-weighted circular mean of segment bearings. Segments under ~20 m or with huge accuracy are ignored so parked jitter does not spin the triangle. |
 | Radar | Client fetch of `https://api.rainviewer.com/public/weather-maps.json`. Coordinate-centered images: `{host}{path}/{size}/{z}/{lat}/{lon}/{color}/{options}.png` (512px, Universal Blue scheme `2`, zoom ≤7) preloaded and swapped on a canvas overlay. Free-tier notes (2026): past frames ~2h / 10 min, rate limit on the order of 100 req/IP/min. |
-| Compass | Sensor / orientation events. Optional `?heading=247` simulates a heading for development or screenshots (labeled **Simulated heading**). |
-| Map | MapLibre GL + OSM raster tiles (darkened). No Mapbox or Carto token. Follow-me recenters. Default is heading-up (map rotates with compass); north-up is a toggle. Falls back to north-up if heading is missing. |
+| Compass | Sensor / orientation events. Optional `?heading=247` simulates a heading for development or screenshots (labeled **Simulated heading**). Compass still drives the badge and heading-up when present; the marker always prefers track heading. |
+| Map | MapLibre GL + OSM raster tiles (darkened). No Mapbox or Carto token. Follow-me recenters. Default is heading-up (map rotates with compass, or GPS track if compass is missing); north-up is a toggle. Falls back to north-up if both are missing. |
 
 **Radar data by [RainViewer](https://www.rainviewer.com/api.html).** Basemap © OpenStreetMap contributors.
 
@@ -48,6 +50,7 @@ Other scripts:
 ```bash
 npm run lint
 npm run typecheck
+npm run test
 npm run build
 ```
 

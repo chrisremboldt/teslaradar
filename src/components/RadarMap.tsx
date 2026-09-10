@@ -11,6 +11,7 @@ import {
   OSM_ATTRIBUTION,
   OSM_RASTER_TILES,
 } from "@/lib/constants";
+import { normalizeHeading } from "@/lib/format";
 import { accuracyCircle, emptyCollection } from "@/lib/geo";
 import type { RadarFrame } from "@/lib/types";
 
@@ -18,7 +19,10 @@ type RadarMapProps = {
   lat: number;
   lon: number;
   accuracy: number | null;
+  /** GPS track heading for the ownship chevron. Null = no-heading look. */
   heading: number | null;
+  /** Compass (or track fallback) used to rotate the map in heading-up. */
+  mapHeading?: number | null;
   followMe: boolean;
   headingUp: boolean;
   radarHost: string | null;
@@ -47,6 +51,7 @@ export function RadarMap({
   lon,
   accuracy,
   heading,
+  mapHeading = heading,
   followMe,
   headingUp,
   radarHost,
@@ -164,13 +169,25 @@ export function RadarMap({
     if (!current || !marker) return;
 
     marker.setLngLat([lon, lat]);
-    const markerHeading = headingUp ? 0 : (heading ?? 0);
-    marker.setRotation(heading != null ? markerHeading : 0);
-    marker.getElement().classList.toggle("has-heading", heading != null);
+    const hasTrackHeading = heading != null;
+    const rotateHeading = headingUp ? (mapHeading ?? heading) : null;
+    const markerRotation = !hasTrackHeading
+      ? 0
+      : headingUp && rotateHeading != null
+        ? normalizeHeading(heading - rotateHeading)
+        : heading;
+    marker.setRotation(markerRotation);
+    const markerEl = marker.getElement();
+    markerEl.classList.toggle("has-heading", hasTrackHeading);
+    if (hasTrackHeading) {
+      markerEl.dataset.trackHeading = String(Math.round(heading));
+    } else {
+      delete markerEl.dataset.trackHeading;
+    }
 
     const apply = () => {
       applyAccuracy(current, lon, lat, accuracy);
-      const nextBearing = headingUp && heading != null ? heading : 0;
+      const nextBearing = headingUp && rotateHeading != null ? rotateHeading : 0;
       const camera: JumpToOptions = { bearing: nextBearing };
       if (followMe) {
         camera.center = [lon, lat];
@@ -180,7 +197,7 @@ export function RadarMap({
 
     if (current.isStyleLoaded()) apply();
     else current.once("load", apply);
-  }, [accuracy, followMe, heading, headingUp, lat, lon]);
+  }, [accuracy, followMe, heading, headingUp, lat, lon, mapHeading]);
 
   const frame = radarFrames[radarFrameIndex] ?? radarFrames.at(-1) ?? null;
 
