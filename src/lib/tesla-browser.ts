@@ -41,7 +41,10 @@ export function overlayPixelRatioForBrowser(tesla: boolean, devicePixelRatio: nu
   return mapPixelRatioForBrowser(tesla, devicePixelRatio);
 }
 
-/** watchPosition + enableHighAccuracy has crashed Tesla Chromium. Poll instead. */
+/**
+ * watchPosition + enableHighAccuracy has crashed Tesla Chromium.
+ * Use getCurrentPosition on a short poll (await a recent reading) instead.
+ */
 export function shouldWatchGeolocation(tesla: boolean): boolean {
   return !tesla;
 }

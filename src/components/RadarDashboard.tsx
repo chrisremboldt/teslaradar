@@ -226,7 +226,7 @@ export function RadarDashboard() {
                 {errorCopy(error).body}
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
-                <button type="button" className="hud-btn" onClick={refresh}>
+                <button type="button" className="hud-btn" onClick={() => refresh("fresh")}>
                   Retry location
                 </button>
                 <button type="button" className="hud-btn" onClick={() => applyDemo("nashville")}>
