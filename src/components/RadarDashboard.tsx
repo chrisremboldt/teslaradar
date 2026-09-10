@@ -102,7 +102,7 @@ export function RadarDashboard() {
 
   return (
     <div
-      className="relative h-dvh w-full overflow-hidden bg-[#0b0d10] text-zinc-100"
+      className="relative h-dvh w-full overflow-hidden overflow-x-hidden bg-[#0b0d10] text-zinc-100"
       data-tesla-browser={tesla ? "on" : "off"}
       data-geo-watch={watching ? "on" : "off"}
     >
@@ -139,31 +139,49 @@ export function RadarDashboard() {
         </div>
       )}
 
-      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 bg-gradient-to-b from-black/80 via-black/35 to-transparent pt-[max(0.75rem,env(safe-area-inset-top))]">
-        <header className="pointer-events-auto mx-auto flex w-full max-w-xl flex-col gap-3 px-3 pb-6">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-red-400">
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 bg-gradient-to-b from-black/80 via-black/35 to-transparent pt-[max(0.5rem,env(safe-area-inset-top))]">
+        <header
+          data-hud="top"
+          className="pointer-events-auto mx-auto flex w-full max-w-xl flex-col gap-2 px-3 pb-3 sm:gap-3 sm:pb-6"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.28em] text-red-400 sm:text-[11px]">
                 TeslaRadar
               </p>
-              <h1 className="text-xl font-semibold tracking-tight">Live weather radar</h1>
+              <h1 className="hidden text-xl font-semibold tracking-tight sm:block">
+                Live weather radar
+              </h1>
             </div>
-            {fix ? (
-              <span
-                className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${
-                  fix.source === "demo"
-                    ? "bg-amber-400 text-black"
-                    : "bg-emerald-500/20 text-emerald-300"
-                }`}
-              >
-                {sourceLabel(fix.source)}
-              </span>
-            ) : null}
+            <div className="flex shrink-0 items-center gap-1.5">
+              {compass.status === "needs-permission" ? (
+                <button
+                  type="button"
+                  className="hud-btn"
+                  aria-label="Enable compass"
+                  onClick={() => void compass.requestPermission()}
+                >
+                  <span className="sm:hidden">Compass</span>
+                  <span className="hidden sm:inline">Enable compass</span>
+                </button>
+              ) : null}
+              {fix ? (
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide sm:px-2.5 sm:py-1 sm:text-[11px] ${
+                    fix.source === "demo"
+                      ? "bg-amber-400 text-black"
+                      : "bg-emerald-500/20 text-emerald-300"
+                  }`}
+                >
+                  {sourceLabel(fix.source)}
+                </span>
+              ) : null}
+            </div>
           </div>
 
           {fix ? (
             <div
-              className="rounded-2xl border border-white/10 bg-black/55 px-3 py-2.5 backdrop-blur-md"
+              className="rounded-2xl border border-white/10 bg-black/55 px-2.5 py-2 backdrop-blur-md sm:px-3 sm:py-2.5"
               data-place={placeLabel ?? ""}
               data-relative={formatRelative(fix.timestamp, now)}
               data-lat={String(fix.lat)}
@@ -173,14 +191,18 @@ export function RadarDashboard() {
               data-range-5={ownship.range5m == null ? "" : String(Math.round(ownship.range5m))}
               data-range-30={ownship.range30m == null ? "" : String(Math.round(ownship.range30m))}
             >
-              <p className="text-lg font-semibold tracking-tight">{placeLabel}</p>
-              <p className="mt-0.5 font-mono text-[11px] tracking-wide text-zinc-500">
+              <p className="truncate text-base font-semibold tracking-tight sm:text-lg">
+                {placeLabel}
+              </p>
+              <p className="mt-0.5 hidden font-mono text-[11px] tracking-wide text-zinc-500 sm:block">
                 {formatLatLon(fix.lat, fix.lon)}
               </p>
-              <p className="mt-1 text-xs text-zinc-400">
+              <p className="mt-0.5 text-[11px] text-zinc-400 sm:mt-1 sm:text-xs">
                 {formatAccuracy(fix.accuracy)}
-                {" · "}
-                Updated {formatClock(fix.timestamp)}
+                <span className="hidden sm:inline">
+                  {" · "}
+                  Updated {formatClock(fix.timestamp)}
+                </span>
                 {" · "}
                 {formatRelative(fix.timestamp, now)}
               </p>
@@ -221,45 +243,61 @@ export function RadarDashboard() {
 
       {compass.heading != null &&
       (compass.status === "available" || compass.status === "simulated") ? (
-        <div className="pointer-events-none absolute right-3 top-[min(42vh,22rem)] z-10">
+        <div className="pointer-events-none absolute right-2 top-[min(34vh,16rem)] z-10 sm:right-3 sm:top-[min(42vh,22rem)]">
           <CompassBadge heading={compass.heading} status={compass.status} />
         </div>
       ) : null}
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/85 via-black/40 to-transparent pb-[max(0.85rem,env(safe-area-inset-bottom))] pt-10">
-        <div className="pointer-events-auto mx-auto flex w-full max-w-xl flex-col gap-3 px-3">
-          <div className="flex flex-wrap gap-2">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/85 via-black/40 to-transparent pb-[max(0.65rem,env(safe-area-inset-bottom))] pt-8 sm:pt-10">
+        <div
+          data-hud="bottom"
+          className="pointer-events-auto mx-auto flex w-full max-w-xl flex-col gap-2 px-3 sm:gap-3"
+        >
+          <div className="hud-controls">
             <button
               type="button"
               className="hud-btn hud-btn-primary"
+              aria-label={isRefreshing ? "Refreshing" : "Refresh now"}
               onClick={() => {
                 refresh();
                 void radar.reload();
               }}
               disabled={isRefreshing}
             >
-              {isRefreshing ? "Refreshing…" : "Refresh now"}
+              <span className="sm:hidden">{isRefreshing ? "Refreshing…" : "Refresh"}</span>
+              <span className="hidden sm:inline">
+                {isRefreshing ? "Refreshing…" : "Refresh now"}
+              </span>
             </button>
             <button
               type="button"
               className={`hud-btn ${prefs.animateRadar ? "hud-btn-on" : ""}`}
+              aria-label={prefs.animateRadar ? "Pause radar" : "Play radar"}
               onClick={() => update({ animateRadar: !prefs.animateRadar })}
               disabled={!radar.frames.length}
             >
-              {prefs.animateRadar ? "Pause radar" : "Play radar"}
+              <span className="sm:hidden">{prefs.animateRadar ? "Pause" : "Play"}</span>
+              <span className="hidden sm:inline">
+                {prefs.animateRadar ? "Pause radar" : "Play radar"}
+              </span>
             </button>
             <button
               type="button"
               className={`hud-btn ${prefs.followMe ? "hud-btn-on" : ""}`}
+              aria-label={prefs.followMe ? "Following" : "Follow me"}
               aria-pressed={prefs.followMe}
               data-follow-me={prefs.followMe ? "on" : "off"}
               onClick={() => update({ followMe: !prefs.followMe })}
             >
-              {prefs.followMe ? "Following" : "Follow me"}
+              <span className="sm:hidden">{prefs.followMe ? "Following" : "Follow"}</span>
+              <span className="hidden sm:inline">
+                {prefs.followMe ? "Following" : "Follow me"}
+              </span>
             </button>
             <button
               type="button"
               className={`hud-btn ${headingUpActive ? "hud-btn-on" : ""}`}
+              aria-label={headingUpActive ? "Heading-up" : "North-up"}
               onClick={() => update({ headingUp: !prefs.headingUp })}
               disabled={mapHeading == null}
               title={
@@ -270,20 +308,14 @@ export function RadarDashboard() {
                     : "Toggle heading-up vs north-up"
               }
             >
-              {headingUpActive ? "Heading-up" : "North-up"}
+              <span className="sm:hidden">{headingUpActive ? "Heading" : "North"}</span>
+              <span className="hidden sm:inline">
+                {headingUpActive ? "Heading-up" : "North-up"}
+              </span>
             </button>
-            {compass.status === "needs-permission" ? (
-              <button
-                type="button"
-                className="hud-btn"
-                onClick={() => void compass.requestPermission()}
-              >
-                Enable compass
-              </button>
-            ) : null}
           </div>
 
-          <div className="flex items-end justify-between gap-3 text-[11px] text-zinc-500">
+          <div className="flex flex-col gap-0.5 text-[10px] leading-snug text-zinc-500 sm:flex-row sm:items-end sm:justify-between sm:gap-3 sm:text-[11px]">
             <div className="min-w-0">
               <p
                 data-radar-index={radar.frame ? String(radar.frameIndex) : ""}
@@ -294,11 +326,13 @@ export function RadarDashboard() {
                   : radar.isLoading
                     ? "Loading RainViewer…"
                     : (radar.error ?? "No radar frames")}
-                {" · "}
-                Location poll{" "}
-                {pollIntervalMs >= 60_000
-                  ? `${pollIntervalMs / 60_000} min`
-                  : `${pollIntervalMs / 1000} s`}
+                <span className="hidden sm:inline">
+                  {" · "}
+                  Location poll{" "}
+                  {pollIntervalMs >= 60_000
+                    ? `${pollIntervalMs / 60_000} min`
+                    : `${pollIntervalMs / 1000} s`}
+                </span>
                 {trackHeading != null ? (
                   <span className="text-zinc-600">
                     {" "}
@@ -306,15 +340,15 @@ export function RadarDashboard() {
                   </span>
                 ) : null}
                 {ownship.range5m != null && ownship.range30m != null ? (
-                  <span className="text-zinc-600"> · 5 / 30 min rings</span>
+                  <span className="hidden text-zinc-600 sm:inline"> · 5 / 30 min rings</span>
                 ) : null}
                 {compass.status === "unavailable" || compass.status === "unknown" ? (
-                  <span className="text-zinc-600"> · compass unavailable</span>
+                  <span className="hidden text-zinc-600 sm:inline"> · compass unavailable</span>
                 ) : null}
               </p>
               {latestFrame && latestClock && latestAge ? (
                 <p
-                  className="mt-0.5 text-[10px] tabular-nums text-zinc-600"
+                  className="mt-0.5 tabular-nums text-zinc-600"
                   title="Newest RainViewer past frame — data freshness, not the playhead"
                   data-radar-latest={String(latestFrame.time)}
                   data-radar-latest-clock={latestClock}
@@ -324,8 +358,7 @@ export function RadarDashboard() {
                 </p>
               ) : null}
             </div>
-            <p className="max-w-[14rem] text-right leading-relaxed">
-              Radar by{" "}
+            <p className="text-zinc-600 sm:max-w-[14rem] sm:text-right sm:leading-relaxed sm:text-zinc-500">
               <a
                 className="underline decoration-white/20 underline-offset-2"
                 href="https://www.rainviewer.com/api.html"
@@ -334,8 +367,11 @@ export function RadarDashboard() {
               >
                 RainViewer
               </a>
-              {" · "}
-              {NOMINATIM_ATTRIBUTION}
+              <span className="sm:hidden"> · © OSM</span>
+              <span className="hidden sm:inline">
+                {" · "}
+                {NOMINATIM_ATTRIBUTION}
+              </span>
             </p>
           </div>
         </div>
