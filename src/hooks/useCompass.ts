@@ -45,7 +45,9 @@ export function useCompass(simulatedHeading: number | null) {
     () => false,
   );
   const [liveHeading, setLiveHeading] = useState<number | null>(null);
-  const [liveStatus, setLiveStatus] = useState<CompassStatus>("unknown");
+  const [liveStatus, setLiveStatus] = useState<CompassStatus>(() =>
+    isTeslaBrowser() ? "unavailable" : "unknown",
+  );
   const [iosGranted, setIosGranted] = useState(false);
   const smoothed = useRef<number | null>(null);
   const gotReading = useRef(false);
@@ -66,7 +68,6 @@ export function useCompass(simulatedHeading: number | null) {
     // Tesla exposes broken orientation / AbsoluteOrientationSensor stubs that
     // have crashed the tab. Heading-up falls back to GPS track heading.
     if (isTeslaBrowser()) {
-      setLiveStatus("unavailable");
       return;
     }
 

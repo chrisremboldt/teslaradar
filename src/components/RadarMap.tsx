@@ -27,6 +27,14 @@ import {
 } from "@/lib/tesla-browser";
 import type { RadarFrame } from "@/lib/types";
 
+function bindTestMapHandle(map: MapLibreMap | null) {
+  if (map) {
+    window.__TESLARADAR_MAP__ = map;
+    return;
+  }
+  delete window.__TESLARADAR_MAP__;
+}
+
 type RadarMapProps = {
   lat: number;
   lon: number;
@@ -117,8 +125,6 @@ export function RadarMap({
   const hasFollowLockedRef = useRef(false);
   const lastOwnshipRef = useRef({ lat, lon });
   const tesla = isTeslaBrowser();
-  const teslaRef = useRef(tesla);
-  teslaRef.current = tesla;
   const [map, setMap] = useState<MapLibreMap | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
 
@@ -129,7 +135,7 @@ export function RadarMap({
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
-    const constrained = teslaRef.current;
+    const constrained = isTeslaBrowser();
     const pixelRatio = mapPixelRatioForBrowser(constrained, window.devicePixelRatio || 1);
     let mapInstance: MapLibreMap;
     try {
@@ -165,15 +171,19 @@ export function RadarMap({
         minZoom: 3,
         attributionControl: { compact: true },
         fadeDuration: 0,
-        maxPitch: constrained ? 0 : 60,
-        pitchWithRotate: !constrained,
-        renderWorldCopies: !constrained,
-        refreshExpiredTiles: !constrained,
         validateStyle: false,
         pixelRatio,
-        maxTileCacheSize: mapMaxTileCacheSize(constrained),
-        maxTileCacheZoomLevels: constrained ? 2 : undefined,
-        maxCanvasSize: mapMaxCanvasSize(constrained),
+        ...(constrained
+          ? {
+              maxPitch: 0,
+              pitchWithRotate: false,
+              renderWorldCopies: false,
+              refreshExpiredTiles: false,
+              maxTileCacheSize: mapMaxTileCacheSize(true),
+              maxTileCacheZoomLevels: 2,
+              maxCanvasSize: mapMaxCanvasSize(true),
+            }
+          : {}),
         canvasContextAttributes: {
           antialias: false,
           failIfMajorPerformanceCaveat: false,
@@ -182,7 +192,9 @@ export function RadarMap({
         },
       });
     } catch {
-      setMapError("Map failed to start in this browser.");
+      window.setTimeout(() => {
+        setMapError("Map failed to start in this browser.");
+      }, 0);
       return;
     }
 
@@ -275,7 +287,7 @@ export function RadarMap({
     mapInstance.on("drag", maybeUserPan);
     mapInstance.on("dragend", maybeUserPan);
 
-    window.__TESLARADAR_MAP__ = mapInstance;
+    bindTestMapHandle(mapInstance);
 
     mapRef.current = mapInstance;
     markerRef.current = marker;
@@ -285,7 +297,7 @@ export function RadarMap({
     return () => {
       glCanvas.removeEventListener("webglcontextlost", onContextLost);
       if (window.__TESLARADAR_MAP__ === mapInstance) {
-        delete window.__TESLARADAR_MAP__;
+        bindTestMapHandle(null);
       }
       setMap(null);
       marker.remove();
@@ -345,7 +357,7 @@ export function RadarMap({
         positionChanged,
         followJustEnabled,
         jumpMeters: FOLLOW_JUMP_METERS,
-        preferJump: preferJumpFollow(teslaRef.current),
+        preferJump: preferJumpFollow(isTeslaBrowser()),
       });
       const camera: JumpToOptions & EaseToOptions = { bearing: plan.bearing };
       if (plan.center) camera.center = plan.center;

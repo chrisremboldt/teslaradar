@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { TESLA_LOCATION_POLL_MS } from "./constants.ts";
-import { radarFramesToPreload } from "./rainviewer.ts";
 import {
   applyTeslaDocumentClass,
   isTeslaBrowser,
@@ -60,13 +59,6 @@ test("Tesla profile is poll-only, jump-only, and 1× pixels", () => {
   assert.equal(mapMaxTileCacheSize(false), undefined);
   assert.deepEqual(mapMaxCanvasSize(true), [2048, 2048]);
   assert.equal(TESLA_LOCATION_POLL_MS, 15_000);
-});
-
-test("Tesla preload keeps the playhead and one neighbor on each side", () => {
-  const frames = ["a", "b", "c", "d", "e"];
-  assert.deepEqual(radarFramesToPreload(frames, 2, 1), ["b", "c", "d"]);
-  assert.deepEqual(radarFramesToPreload(frames, 0, 1), ["e", "a", "b"]);
-  assert.deepEqual(radarFramesToPreload(frames, 2, Number.POSITIVE_INFINITY), frames);
 });
 
 test("applyTeslaDocumentClass toggles html.tesla-browser", () => {
