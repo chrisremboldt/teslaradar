@@ -5,25 +5,32 @@ import { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
 import type { JumpToOptions } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { RadarOverlay } from "@/components/RadarOverlay";
+import { RangeRingsOverlay } from "@/components/RangeRingsOverlay";
 import {
   MAP_DEFAULT_ZOOM,
   MAP_MAX_ZOOM,
   OSM_ATTRIBUTION,
   OSM_RASTER_TILES,
 } from "@/lib/constants";
-import { accuracyCircle, emptyCollection } from "@/lib/geo";
+import { normalizeHeading } from "@/lib/format";
+import { accuracyCircle, emptyCollection, ringLabelLngLat } from "@/lib/geo";
 import type { RadarFrame } from "@/lib/types";
 
 type RadarMapProps = {
   lat: number;
   lon: number;
   accuracy: number | null;
+  /** GPS track heading for the ownship chevron. Null = no-heading look. */
   heading: number | null;
+  /** Compass (or track fallback) used to rotate the map in heading-up. */
+  mapHeading?: number | null;
   followMe: boolean;
   headingUp: boolean;
   radarHost: string | null;
   radarFrames: RadarFrame[];
   radarFrameIndex: number;
+  range5m?: number | null;
+  range30m?: number | null;
   onUserPan: () => void;
 };
 
@@ -42,21 +49,33 @@ function applyAccuracy(
   }
 }
 
+function placeRangeLabel(marker: Marker, lon: number, lat: number, radius: number | null | undefined) {
+  const el = marker.getElement();
+  const show = Boolean(radius && radius > 0);
+  el.classList.toggle("is-hidden", !show);
+  if (show && radius) marker.setLngLat(ringLabelLngLat(lon, lat, radius));
+}
+
 export function RadarMap({
   lat,
   lon,
   accuracy,
   heading,
+  mapHeading = heading,
   followMe,
   headingUp,
   radarHost,
   radarFrames,
   radarFrameIndex,
+  range5m = null,
+  range30m = null,
   onUserPan,
 }: RadarMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markerRef = useRef<Marker | null>(null);
+  const label5Ref = useRef<Marker | null>(null);
+  const label30Ref = useRef<Marker | null>(null);
   const onUserPanRef = useRef(onUserPan);
   const [map, setMap] = useState<MapLibreMap | null>(null);
 
@@ -112,6 +131,20 @@ export function RadarMap({
       .setLngLat([lon, lat])
       .addTo(mapInstance);
 
+    const label5El = document.createElement("div");
+    label5El.className = "range-ring-label is-hidden";
+    label5El.textContent = "5 min";
+    const label5 = new Marker({ element: label5El, anchor: "left" })
+      .setLngLat([lon, lat])
+      .addTo(mapInstance);
+
+    const label30El = document.createElement("div");
+    label30El.className = "range-ring-label is-hidden";
+    label30El.textContent = "30 min";
+    const label30 = new Marker({ element: label30El, anchor: "left" })
+      .setLngLat([lon, lat])
+      .addTo(mapInstance);
+
     mapInstance.on("load", () => {
       mapInstance.addSource("accuracy", {
         type: "geojson",
@@ -146,13 +179,19 @@ export function RadarMap({
 
     mapRef.current = mapInstance;
     markerRef.current = marker;
+    label5Ref.current = label5;
+    label30Ref.current = label30;
 
     return () => {
       setMap(null);
       marker.remove();
+      label5.remove();
+      label30.remove();
       mapInstance.remove();
       mapRef.current = null;
       markerRef.current = null;
+      label5Ref.current = null;
+      label30Ref.current = null;
     };
     // Map is created once for the session; camera updates happen in the effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -164,13 +203,30 @@ export function RadarMap({
     if (!current || !marker) return;
 
     marker.setLngLat([lon, lat]);
-    const markerHeading = headingUp ? 0 : (heading ?? 0);
-    marker.setRotation(heading != null ? markerHeading : 0);
-    marker.getElement().classList.toggle("has-heading", heading != null);
+    const hasTrackHeading = heading != null;
+    const rotateHeading = headingUp ? (mapHeading ?? heading) : null;
+    const markerRotation = !hasTrackHeading
+      ? 0
+      : headingUp && rotateHeading != null
+        ? normalizeHeading(heading - rotateHeading)
+        : heading;
+    marker.setRotation(markerRotation);
+    const markerEl = marker.getElement();
+    markerEl.classList.toggle("has-heading", hasTrackHeading);
+    if (hasTrackHeading) {
+      markerEl.dataset.trackHeading = String(Math.round(heading));
+    } else {
+      delete markerEl.dataset.trackHeading;
+    }
+
+    if (label5Ref.current) placeRangeLabel(label5Ref.current, lon, lat, range5m);
+    if (label30Ref.current) placeRangeLabel(label30Ref.current, lon, lat, range30m);
 
     const apply = () => {
       applyAccuracy(current, lon, lat, accuracy);
-      const nextBearing = headingUp && heading != null ? heading : 0;
+      if (label5Ref.current) placeRangeLabel(label5Ref.current, lon, lat, range5m);
+      if (label30Ref.current) placeRangeLabel(label30Ref.current, lon, lat, range30m);
+      const nextBearing = headingUp && rotateHeading != null ? rotateHeading : 0;
       const camera: JumpToOptions = { bearing: nextBearing };
       if (followMe) {
         camera.center = [lon, lat];
@@ -180,7 +236,7 @@ export function RadarMap({
 
     if (current.isStyleLoaded()) apply();
     else current.once("load", apply);
-  }, [accuracy, followMe, heading, headingUp, lat, lon]);
+  }, [accuracy, followMe, heading, headingUp, lat, lon, map, mapHeading, range5m, range30m]);
 
   const frame = radarFrames[radarFrameIndex] ?? radarFrames.at(-1) ?? null;
 
@@ -197,6 +253,15 @@ export function RadarMap({
           host={radarHost}
           frames={radarFrames}
           frameIndex={radarFrameIndex}
+        />
+      ) : null}
+      {map ? (
+        <RangeRingsOverlay
+          map={map}
+          lon={lon}
+          lat={lat}
+          range5m={range5m ?? null}
+          range30m={range30m ?? null}
         />
       ) : null}
     </div>

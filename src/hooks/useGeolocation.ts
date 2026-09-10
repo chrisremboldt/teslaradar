@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "
 import {
   DEFAULT_DEMO,
   DEMO_LOCATIONS,
+  GEO_MAXIMUM_AGE_MS,
+  GEO_TIMEOUT_MS,
   LOCATION_POLL_MS,
   type DemoLocationId,
 } from "@/lib/constants";
@@ -19,10 +21,10 @@ import type { GeoFix, LocationErrorKind } from "@/lib/types";
 // supplement navigator.geolocation after OAuth. v1 is Chromium browser
 // geolocation only — no Tesla tokens, no backend store.
 
-const GEO_OPTIONS: PositionOptions = {
+export const GEO_OPTIONS: PositionOptions = {
   enableHighAccuracy: true,
-  timeout: 15_000,
-  maximumAge: 30_000,
+  timeout: GEO_TIMEOUT_MS,
+  maximumAge: GEO_MAXIMUM_AGE_MS,
 };
 
 function classifyError(error: GeolocationPositionError | null): LocationErrorKind {

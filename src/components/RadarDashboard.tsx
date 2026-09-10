@@ -9,6 +9,7 @@ import { useGeolocation } from "@/hooks/useGeolocation";
 import { usePreferences } from "@/hooks/usePreferences";
 import { useRainViewer } from "@/hooks/useRainViewer";
 import { useReverseGeocode } from "@/hooks/useReverseGeocode";
+import { useOwnshipTrack } from "@/hooks/useOwnshipTrack";
 import { LOCATION_POLL_MS, NOMINATIM_ATTRIBUTION } from "@/lib/constants";
 import {
   formatAccuracy,
@@ -70,6 +71,8 @@ export function RadarDashboard() {
   const { prefs, update } = usePreferences();
   const radar = useRainViewer(prefs.animateRadar);
   const compass = useCompass(simulatedHeading);
+  const ownship = useOwnshipTrack(fix);
+  const trackHeading = ownship.heading;
   const place = useReverseGeocode(fix?.lat ?? null, fix?.lon ?? null);
   const [now, setNow] = useState(() => Date.now());
 
@@ -78,7 +81,8 @@ export function RadarDashboard() {
     return () => window.clearInterval(timer);
   }, []);
 
-  const headingUpActive = prefs.headingUp && compass.heading != null;
+  const mapHeading = compass.heading ?? trackHeading;
+  const headingUpActive = prefs.headingUp && mapHeading != null;
   const showError =
     Boolean(error) && (fix?.source === "demo" || fix?.source === "cached" || !fix);
   const placeLabel = place ?? (fix ? formatLatLon(fix.lat, fix.lon) : null);
@@ -93,7 +97,10 @@ export function RadarDashboard() {
           lat={fix.lat}
           lon={fix.lon}
           accuracy={fix.accuracy}
-          heading={compass.heading}
+          heading={trackHeading}
+          mapHeading={mapHeading}
+          range5m={ownship.range5m}
+          range30m={ownship.range30m}
           followMe={prefs.followMe}
           headingUp={headingUpActive}
           radarHost={radar.catalog?.host ?? null}
@@ -145,6 +152,12 @@ export function RadarDashboard() {
               className="rounded-2xl border border-white/10 bg-black/55 px-3 py-2.5 backdrop-blur-md"
               data-place={placeLabel ?? ""}
               data-relative={formatRelative(fix.timestamp, now)}
+              data-lat={String(fix.lat)}
+              data-lon={String(fix.lon)}
+              data-track-heading={trackHeading == null ? "" : String(Math.round(trackHeading))}
+              data-speed-mps={ownship.speedMps == null ? "" : ownship.speedMps.toFixed(2)}
+              data-range-5={ownship.range5m == null ? "" : String(Math.round(ownship.range5m))}
+              data-range-30={ownship.range30m == null ? "" : String(Math.round(ownship.range30m))}
             >
               <p className="text-lg font-semibold tracking-tight">{placeLabel}</p>
               <p className="mt-0.5 font-mono text-[11px] tracking-wide text-zinc-500">
@@ -234,11 +247,13 @@ export function RadarDashboard() {
               type="button"
               className={`hud-btn ${headingUpActive ? "hud-btn-on" : ""}`}
               onClick={() => update({ headingUp: !prefs.headingUp })}
-              disabled={compass.heading == null}
+              disabled={mapHeading == null}
               title={
-                compass.heading == null
-                  ? "Heading-up needs a compass reading"
-                  : "Toggle heading-up vs north-up"
+                mapHeading == null
+                  ? "Heading-up needs a compass or GPS track heading"
+                  : compass.heading == null
+                    ? "Toggle heading-up vs north-up (GPS track)"
+                    : "Toggle heading-up vs north-up"
               }
             >
               {headingUpActive ? "Heading-up" : "North-up"}
@@ -267,6 +282,15 @@ export function RadarDashboard() {
                     : (radar.error ?? "No radar frames")}
                 {" · "}
                 Location poll {LOCATION_POLL_MS / 60000} min
+                {trackHeading != null ? (
+                  <span className="text-zinc-600">
+                    {" "}
+                    · track {Math.round(trackHeading)}°
+                  </span>
+                ) : null}
+                {ownship.range5m != null && ownship.range30m != null ? (
+                  <span className="text-zinc-600"> · 5 / 30 min rings</span>
+                ) : null}
                 {compass.status === "unavailable" || compass.status === "unknown" ? (
                   <span className="text-zinc-600"> · compass unavailable</span>
                 ) : null}

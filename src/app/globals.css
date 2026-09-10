@@ -76,6 +76,33 @@ body {
   z-index: 1;
 }
 
+.range-rings-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
+  overflow: visible;
+}
+
+.range-ring-stroke {
+  fill: none;
+}
+
+.range-ring-stroke-5 {
+  stroke: #bae6fd;
+  stroke-width: 2;
+  stroke-opacity: 0.85;
+}
+
+.range-ring-stroke-30 {
+  stroke: #7dd3fc;
+  stroke-width: 1.5;
+  stroke-opacity: 0.7;
+  stroke-dasharray: 7 6;
+}
+
 .radar-map .maplibregl-marker {
   z-index: 2;
 }
@@ -114,4 +141,19 @@ body {
   border-bottom-width: 8px;
   border-radius: 999px;
   transform: translate(-50%, -50%);
+}
+
+.range-ring-label {
+  margin-left: 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: rgba(186, 230, 253, 0.78);
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+.range-ring-label.is-hidden {
+  display: none;
 }
