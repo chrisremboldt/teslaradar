@@ -9,7 +9,7 @@ Production target: [https://teslaradar.vercel.app](https://teslaradar.vercel.app
 - Requests `navigator.geolocation`, shows lat/lon, accuracy, and last-updated time.
 - Re-polls location every **5 minutes**, and again on tab visibility resume or **Refresh now**.
 - Persists the last successful GPS fix in `localStorage` so the first paint is not blank while GPS wakes.
-- Overlays RainViewer radar tiles on a free OpenStreetMap raster basemap (darkened in MapLibre). No Mapbox or Carto token.
+- Overlays animated RainViewer radar as a georeferenced canvas/`<img>` layer on a free OpenStreetMap raster basemap (darkened in MapLibre). Radar is not painted through MapLibre raster sources — Tesla Chromium’s WebGL/tile cache froze that path. No Mapbox or Carto token.
 - Plays the past ~2 hours of radar (10-minute steps). Pause/play is in the HUD.
 - Default map mode is **heading-up** (rotate with the device compass). Uses Device Orientation / `AbsoluteOrientationSensor` / `deviceorientationabsolute` when available. iOS needs a tap on **Enable compass**. If heading is missing, the map falls back to north-up and the HUD shows a muted “compass unavailable” note — the app still works. A control toggles north-up vs heading-up.
 - If location is denied or unavailable, you get a clear error plus labeled **DEMO** maps for Nashville, TN or Traverse City, MI (used only as a fallback, never as a silent substitute for a live fix).
@@ -21,7 +21,7 @@ v1 location source is **Chromium browser APIs only**. Tesla Fleet API / OAuth is
 | Piece | How it works |
 | --- | --- |
 | Location | `navigator.geolocation.getCurrentPosition` in the browser. 5-minute interval + visibility + manual refresh. Coordinates never leave the device. |
-| Radar | Client fetch of `https://api.rainviewer.com/public/weather-maps.json`. Tiles: `{host}{path}/{size}/{z}/{x}/{y}/{color}/{options}.png` with Universal Blue (scheme `2`), 256px tiles, `maxzoom` 7 (map may overzoom). Free-tier notes (2026): past frames ~2h / 10 min, rate limit on the order of 100 req/IP/min. |
+| Radar | Client fetch of `https://api.rainviewer.com/public/weather-maps.json`. Coordinate-centered images: `{host}{path}/{size}/{z}/{lat}/{lon}/{color}/{options}.png` (512px, Universal Blue scheme `2`, zoom ≤7) preloaded and swapped on a canvas overlay. Free-tier notes (2026): past frames ~2h / 10 min, rate limit on the order of 100 req/IP/min. |
 | Compass | Sensor / orientation events. Optional `?heading=247` simulates a heading for development or screenshots (labeled **Simulated heading**). |
 | Map | MapLibre GL + OSM raster tiles (darkened). No Mapbox or Carto token. Follow-me recenters. Default is heading-up (map rotates with compass); north-up is a toggle. Falls back to north-up if heading is missing. |
 
