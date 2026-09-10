@@ -13,9 +13,9 @@ export function CompassBadge({ heading, status }: CompassBadgeProps) {
   if (heading == null) return null;
 
   return (
-    <div className="pointer-events-none flex items-center gap-3 rounded-2xl border border-white/15 bg-black/55 px-3 py-2 text-zinc-100 backdrop-blur-md">
+    <div className="pointer-events-none flex items-center gap-2 rounded-2xl border border-white/15 bg-black/55 px-2 py-1.5 text-zinc-100 backdrop-blur-md sm:gap-3 sm:px-3 sm:py-2">
       <div
-        className="relative grid h-12 w-12 place-items-center rounded-full border border-white/15 bg-zinc-950/80"
+        className="relative grid h-9 w-9 place-items-center rounded-full border border-white/15 bg-zinc-950/80 sm:h-12 sm:w-12"
         aria-hidden
       >
         <div
@@ -31,8 +31,8 @@ export function CompassBadge({ heading, status }: CompassBadgeProps) {
         </div>
         <span className="h-2 w-2 rounded-full bg-sky-400 shadow-[0_0_10px_#38bdf8]" />
       </div>
-      <div className="min-w-[7.5rem] leading-tight">
-        <p className="text-sm font-semibold tabular-nums">{formatHeading(heading)}</p>
+      <div className="min-w-0 leading-tight sm:min-w-[7.5rem]">
+        <p className="text-xs font-semibold tabular-nums sm:text-sm">{formatHeading(heading)}</p>
         <p className="text-[11px] uppercase tracking-wide text-zinc-400">
           {status === "simulated" ? "Simulated heading" : "Device heading"}
         </p>

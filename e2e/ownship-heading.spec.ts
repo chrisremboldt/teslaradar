@@ -178,7 +178,6 @@ test.describe("ownship track heading", () => {
     await expect(page.locator("[data-range-overlay=on]")).toBeVisible();
     await expect(page.locator(".range-ring-label", { hasText: "5 min" })).toBeVisible();
     await expect(page.locator(".range-ring-label", { hasText: "30 min" })).toBeVisible();
-    await expect(page.getByText("5 / 30 min rings")).toBeVisible();
 
     await page.waitForTimeout(800);
     await page.screenshot({

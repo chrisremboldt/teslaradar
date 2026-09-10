@@ -26,16 +26,41 @@ body {
 }
 
 .hud-btn {
-  min-height: 44px;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  min-height: 40px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.12);
   background: var(--hud-bg);
-  padding: 0.55rem 0.9rem;
-  font-size: 0.8125rem;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.75rem;
   font-weight: 600;
   letter-spacing: 0.01em;
   color: #e4e4e7;
+  white-space: nowrap;
   backdrop-filter: blur(12px);
+}
+
+@media (min-width: 640px) {
+  .hud-btn {
+    min-height: 44px;
+    padding: 0.55rem 0.9rem;
+    font-size: 0.8125rem;
+  }
+}
+
+.hud-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.375rem;
+}
+
+@media (min-width: 640px) {
+  .hud-controls {
+    gap: 0.5rem;
+  }
 }
 
 .hud-btn:disabled {
@@ -72,6 +97,12 @@ html.tesla-browser {
 .radar-map .maplibregl-ctrl-attrib {
   background: rgba(0, 0, 0, 0.55);
   color: #a1a1aa;
+}
+
+@media (max-width: 639px) {
+  .radar-map .maplibregl-ctrl-attrib {
+    display: none;
+  }
 }
 
 .radar-map .maplibregl-ctrl-attrib a {
