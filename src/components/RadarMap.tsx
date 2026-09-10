@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
 import type { JumpToOptions } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
@@ -9,11 +9,18 @@ import {
   MAP_MAX_ZOOM,
   OSM_ATTRIBUTION,
   OSM_RASTER_TILES,
-  RADAR_CROSSFADE_MS,
+  RADAR_IMAGE_SIZE,
   RADAR_LAYER_OPACITY,
-  RADAR_MAX_NATIVE_ZOOM,
 } from "@/lib/constants";
 import { accuracyCircle, emptyCollection } from "@/lib/geo";
+import {
+  lngLatToMercatorPx,
+  mercatorPxToLngLat,
+  quantizeRadarCoord,
+  radarImageUrl,
+  radarOverlayZoom,
+} from "@/lib/rainviewer";
+import type { RadarFrame } from "@/lib/types";
 
 type RadarMapProps = {
   lat: number;
@@ -22,11 +29,11 @@ type RadarMapProps = {
   heading: number | null;
   followMe: boolean;
   headingUp: boolean;
-  tileTemplate: string | null;
+  radarHost: string | null;
+  radarFrames: RadarFrame[];
+  radarFrameIndex: number;
   onUserPan: () => void;
 };
-
-type RadarSlot = "radar-a" | "radar-b";
 
 function applyAccuracy(
   map: MapLibreMap,
@@ -43,75 +50,65 @@ function applyAccuracy(
   }
 }
 
-function removeRadarSlot(map: MapLibreMap, id: RadarSlot) {
-  if (map.getLayer(id)) map.removeLayer(id);
-  if (map.getSource(id)) map.removeSource(id);
-}
-
-function addRadarSlot(map: MapLibreMap, id: RadarSlot, tileTemplate: string, opacity: number) {
-  removeRadarSlot(map, id);
-  map.addSource(id, {
-    type: "raster",
-    tiles: [tileTemplate],
-    tileSize: 256,
-    maxzoom: RADAR_MAX_NATIVE_ZOOM,
-    attribution: '<a href="https://www.rainviewer.com/api.html">RainViewer</a>',
-  });
-  map.addLayer(
-    {
-      id,
-      type: "raster",
-      source: id,
-      paint: {
-        "raster-opacity": opacity,
-        "raster-fade-duration": 0,
-        "raster-opacity-transition": { duration: RADAR_CROSSFADE_MS, delay: 0 },
-      },
-    },
-    map.getLayer("accuracy-fill") ? "accuracy-fill" : undefined,
-  );
-}
-
-type FadeTimers = { kick: number; cleanup: number };
-
-function clearFadeTimers(timers: FadeTimers) {
-  window.clearTimeout(timers.kick);
-  window.clearTimeout(timers.cleanup);
+function sizeOverlayCanvas(canvas: HTMLCanvasElement, width: number, height: number) {
+  const dpr = window.devicePixelRatio || 1;
+  const nextW = Math.max(1, Math.round(width * dpr));
+  const nextH = Math.max(1, Math.round(height * dpr));
+  if (canvas.width !== nextW || canvas.height !== nextH) {
+    canvas.width = nextW;
+    canvas.height = nextH;
+  }
+  canvas.style.width = `${width}px`;
+  canvas.style.height = `${height}px`;
 }
 
 /**
- * Tesla's Chromium / MapLibre often keeps cached raster tiles after
- * `RasterTileSource.setTiles()`. Force a reload by removing and re-adding the
- * incoming source, then crossfading two radar layers.
+ * Draw a north-up RainViewer composite so it stays georegistered on the
+ * basemap, including heading-up (rotate with map bearing). MapLibre raster
+ * tile animation is intentionally not used — setTiles / dual-layer crossfade
+ * stays frozen on iPhone Safari and Tesla Chromium.
  */
-function showRadarFrame(
+function paintRadarFrame(
+  canvas: HTMLCanvasElement,
   map: MapLibreMap,
-  tileTemplate: string,
-  activeSlot: RadarSlot | null,
-): { next: RadarSlot; timers: FadeTimers } {
-  const next: RadarSlot = activeSlot === "radar-a" ? "radar-b" : "radar-a";
-  const outgoing = activeSlot;
-  const first = outgoing == null || !map.getLayer(outgoing);
-  addRadarSlot(map, next, tileTemplate, first ? RADAR_LAYER_OPACITY : 0);
+  image: HTMLImageElement,
+  lat: number,
+  lon: number,
+  radarZoom: number,
+) {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
 
-  if (first || !outgoing) {
-    return { next, timers: { kick: 0, cleanup: 0 } };
-  }
+  const cssWidth = canvas.clientWidth || map.getContainer().clientWidth;
+  const cssHeight = canvas.clientHeight || map.getContainer().clientHeight;
+  sizeOverlayCanvas(canvas, cssWidth, cssHeight);
 
-  const kick = window.setTimeout(() => {
-    if (!map.getStyle()) return;
-    map.setPaintProperty(next, "raster-opacity", RADAR_LAYER_OPACITY);
-    if (map.getLayer(outgoing)) {
-      map.setPaintProperty(outgoing, "raster-opacity", 0);
-    }
-  }, 32);
+  const dpr = window.devicePixelRatio || 1;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssWidth, cssHeight);
 
-  const cleanup = window.setTimeout(() => {
-    if (!map.getStyle()) return;
-    removeRadarSlot(map, outgoing);
-  }, RADAR_CROSSFADE_MS + 80);
+  const qLat = quantizeRadarCoord(lat);
+  const qLon = quantizeRadarCoord(lon);
+  const origin = lngLatToMercatorPx(qLon, qLat, radarZoom);
+  const [eastLng, eastLat] = mercatorPxToLngLat(
+    origin.x + RADAR_IMAGE_SIZE / 2,
+    origin.y,
+    radarZoom,
+  );
+  const center = map.project([qLon, qLat]);
+  const east = map.project([eastLng, eastLat]);
+  const displayHalf = Math.hypot(east.x - center.x, east.y - center.y);
+  if (!Number.isFinite(displayHalf) || displayHalf < 2) return;
 
-  return { next, timers: { kick, cleanup } };
+  const displaySize = displayHalf * 2;
+  const bearing = map.getBearing();
+
+  ctx.save();
+  ctx.translate(center.x, center.y);
+  ctx.rotate((bearing * Math.PI) / 180);
+  ctx.globalAlpha = RADAR_LAYER_OPACITY;
+  ctx.drawImage(image, -displaySize / 2, -displaySize / 2, displaySize, displaySize);
+  ctx.restore();
 }
 
 export function RadarMap({
@@ -121,16 +118,26 @@ export function RadarMap({
   heading,
   followMe,
   headingUp,
-  tileTemplate,
+  radarHost,
+  radarFrames,
+  radarFrameIndex,
   onUserPan,
 }: RadarMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLCanvasElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markerRef = useRef<Marker | null>(null);
   const onUserPanRef = useRef(onUserPan);
-  const lastTileRef = useRef<string | null>(null);
-  const activeSlotRef = useRef<RadarSlot | null>(null);
-  const fadeTimersRef = useRef<FadeTimers>({ kick: 0, cleanup: 0 });
+  const imagesRef = useRef(new Map<string, HTMLImageElement>());
+  const drawRef = useRef<() => void>(() => {});
+  const [mapReady, setMapReady] = useState(false);
+  const [radarZoom, setRadarZoom] = useState(() => radarOverlayZoom(MAP_DEFAULT_ZOOM));
+
+  const frame = radarFrames[radarFrameIndex] ?? radarFrames.at(-1) ?? null;
+  const frameUrl =
+    radarHost && frame
+      ? radarImageUrl(radarHost, frame.path, lat, lon, radarZoom)
+      : null;
 
   useEffect(() => {
     onUserPanRef.current = onUserPan;
@@ -209,23 +216,30 @@ export function RadarMap({
         },
       });
       applyAccuracy(map, lon, lat, accuracy);
+      setRadarZoom(radarOverlayZoom(map.getZoom()));
+      setMapReady(true);
     });
 
     map.on("dragstart", () => {
       onUserPanRef.current();
     });
 
+    const overlay = document.createElement("canvas");
+    overlay.className = "radar-image-overlay";
+    overlay.setAttribute("aria-hidden", "true");
+    containerRef.current.appendChild(overlay);
+    overlayRef.current = overlay;
+
     mapRef.current = map;
     markerRef.current = marker;
 
     return () => {
-      clearFadeTimers(fadeTimersRef.current);
       marker.remove();
       map.remove();
       mapRef.current = null;
       markerRef.current = null;
-      activeSlotRef.current = null;
-      lastTileRef.current = null;
+      overlayRef.current = null;
+      setMapReady(false);
     };
     // Map is created once for the session; camera updates happen in the effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -257,25 +271,77 @@ export function RadarMap({
 
   useEffect(() => {
     const map = mapRef.current;
-    if (!map || !tileTemplate || tileTemplate === lastTileRef.current) return;
+    if (!map || !mapReady) return undefined;
 
-    const applyTiles = () => {
-      clearFadeTimers(fadeTimersRef.current);
-      const { next, timers } = showRadarFrame(map, tileTemplate, activeSlotRef.current);
-      activeSlotRef.current = next;
-      fadeTimersRef.current = timers;
-      lastTileRef.current = tileTemplate;
+    const syncZoom = () => setRadarZoom(radarOverlayZoom(map.getZoom()));
+    const redraw = () => drawRef.current();
+    map.on("zoomend", syncZoom);
+    map.on("move", redraw);
+    map.on("resize", redraw);
+    return () => {
+      map.off("zoomend", syncZoom);
+      map.off("move", redraw);
+      map.off("resize", redraw);
+    };
+  }, [mapReady]);
+
+  useEffect(() => {
+    if (!radarHost || radarFrames.length === 0) return undefined;
+
+    const urls = radarFrames.map((nextFrame) =>
+      radarImageUrl(radarHost, nextFrame.path, lat, lon, radarZoom),
+    );
+    const keep = new Set(urls);
+    let cancelled = false;
+
+    urls.forEach((url) => {
+      if (imagesRef.current.has(url)) return;
+      const image = new Image();
+      image.decoding = "async";
+      image.onload = () => {
+        if (cancelled) return;
+        imagesRef.current.set(url, image);
+        drawRef.current();
+      };
+      image.src = url;
+    });
+
+    if (imagesRef.current.size > 40) {
+      for (const key of imagesRef.current.keys()) {
+        if (!keep.has(key)) imagesRef.current.delete(key);
+        if (imagesRef.current.size <= 26) break;
+      }
+    }
+
+    return () => {
+      cancelled = true;
+    };
+  }, [lat, lon, radarFrames, radarHost, radarZoom]);
+
+  useEffect(() => {
+    const canvas = overlayRef.current;
+    const map = mapRef.current;
+    if (canvas) {
+      canvas.dataset.radarPath = frame?.path ?? "";
+      canvas.dataset.radarUrl = frameUrl ?? "";
+      canvas.dataset.radarIndex = frame ? String(radarFrameIndex) : "";
+    }
+
+    drawRef.current = () => {
+      if (!canvas || !map || !frameUrl) return;
+      const loaded = imagesRef.current.get(frameUrl);
+      if (!loaded) return;
+      paintRadarFrame(canvas, map, loaded, lat, lon, radarZoom);
     };
 
-    if (map.isStyleLoaded()) applyTiles();
-    else map.once("load", applyTiles);
-  }, [tileTemplate]);
+    drawRef.current();
+  }, [frame, frameUrl, lat, lon, radarFrameIndex, radarZoom]);
 
   return (
     <div
       ref={containerRef}
-      className="radar-map h-full w-full"
-      data-radar-tiles={tileTemplate ?? ""}
+      className="radar-map relative h-full w-full"
+      data-radar-transport="dom-overlay"
     />
   );
 }

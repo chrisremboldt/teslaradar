@@ -7,7 +7,8 @@ export const PLACE_CACHE_STORAGE_KEY = "teslaradar:places";
 export const PLACE_CACHE_DECIMALS = 2;
 
 export const RAINVIEWER_API = "https://api.rainviewer.com/public/weather-maps.json";
-export const RADAR_TILE_SIZE = 256;
+/** Composite image size (256 or 512). 512 stays sharp on retina / car displays. */
+export const RADAR_IMAGE_SIZE = 512;
 /** Universal Blue — common RainViewer example scheme. */
 export const RADAR_COLOR_SCHEME = 2;
 /** smoothed + snow colors */
@@ -43,4 +44,3 @@ export const OSM_ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
 export const NOMINATIM_ATTRIBUTION = "Places © OpenStreetMap (Nominatim)";
 export const RADAR_LAYER_OPACITY = 0.78;
-export const RADAR_CROSSFADE_MS = 180;
