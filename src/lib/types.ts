@@ -30,6 +30,8 @@ export type RainViewerCatalog = {
 };
 
 export type UserPrefs = {
+  /** Schema version for `teslaradar:prefs`. Missing / < 2 is treated as v1. */
+  prefsVersion: number;
   followMe: boolean;
   headingUp: boolean;
   animateRadar: boolean;

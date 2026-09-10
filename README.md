@@ -10,9 +10,10 @@ Production target: [https://teslaradar.vercel.app](https://teslaradar.vercel.app
 - Re-polls location every **5 minutes**, and again on tab visibility resume or **Refresh now**.
 - Persists the last successful GPS fix in `localStorage` so the first paint is not blank while GPS wakes.
 - Overlays animated RainViewer radar as a georeferenced canvas/`<img>` layer on a free OpenStreetMap raster basemap (darkened in MapLibre). Radar is not painted through MapLibre raster sources — Tesla Chromium’s WebGL/tile cache froze that path. No Mapbox or Carto token.
-- Plays the past ~2 hours of radar (10-minute steps). Pause/play is in the HUD.
+- Plays the past ~2 hours of radar (10-minute steps). Pause/play is in the HUD. The footer playhead shows the current frame time and index; a quieter **Latest** line shows the newest RainViewer past frame’s clock time and relative age (data freshness, not the animation playhead).
 - Default map mode is **heading-up** (rotate with the device compass). Uses Device Orientation / `AbsoluteOrientationSensor` / `deviceorientationabsolute` when available. iOS needs a tap on **Enable compass**. If heading is missing, the map falls back to north-up and the HUD shows a muted “compass unavailable” note — the app still works. A control toggles north-up vs heading-up.
 - If location is denied or unavailable, you get a clear error plus labeled **DEMO** maps for Nashville, TN or Traverse City, MI (used only as a fallback, never as a silent substitute for a live fix).
+- **Follow me** is on for first paint and cold loads (prefs schema v2). Older `teslaradar:prefs` blobs that stored `followMe: false` from a pan are migrated once — follow is re-enabled, heading-up / animate-radar are kept. Panning or tapping Follow me off still sticks for the rest of that session; a hard refresh recenters. The control reads **Following** vs **Follow me**.
 
 v1 location source is **Chromium browser APIs only**. Tesla Fleet API / OAuth is intentionally not implemented. A comment in the geolocation hook marks that as a future option.
 
