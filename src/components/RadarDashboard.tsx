@@ -1,0 +1,265 @@
+"use client";
+
+import dynamic from "next/dynamic";
+import { useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { CompassBadge } from "@/components/CompassBadge";
+import { useCompass } from "@/hooks/useCompass";
+import { useGeolocation } from "@/hooks/useGeolocation";
+import { usePreferences } from "@/hooks/usePreferences";
+import { useRainViewer } from "@/hooks/useRainViewer";
+import { LOCATION_POLL_MS } from "@/lib/constants";
+import {
+  formatAccuracy,
+  formatClock,
+  formatLatLon,
+  formatRelative,
+} from "@/lib/format";
+import type { LocationErrorKind, LocationSource } from "@/lib/types";
+
+const RadarMap = dynamic(
+  () => import("@/components/RadarMap").then((mod) => mod.RadarMap),
+  {
+    ssr: false,
+    loading: () => <div className="h-full w-full bg-[#0b0d10]" />,
+  },
+);
+
+function sourceLabel(source: LocationSource): string {
+  if (source === "gps") return "GPS";
+  if (source === "cached") return "Cached GPS";
+  return "DEMO";
+}
+
+function errorCopy(kind: LocationErrorKind): { title: string; body: string } {
+  if (kind === "denied") {
+    return {
+      title: "Location permission denied",
+      body: "TeslaRadar stays in your browser and never uploads coordinates. Allow location, or view a labeled DEMO city.",
+    };
+  }
+  if (kind === "unsupported") {
+    return {
+      title: "Geolocation unavailable",
+      body: "This browser does not expose navigator.geolocation. Showing a labeled DEMO map instead.",
+    };
+  }
+  if (kind === "timeout") {
+    return {
+      title: "Location timed out",
+      body: "GPS did not respond in time. Retry, or keep the DEMO map if you just want radar.",
+    };
+  }
+  return {
+    title: "Location unavailable",
+    body: "Chromium could not read a position. Retry, or use a labeled DEMO city.",
+  };
+}
+
+export function RadarDashboard() {
+  const searchParams = useSearchParams();
+  const simulatedHeading = useMemo(() => {
+    const raw = searchParams.get("heading");
+    if (raw == null || raw === "") return null;
+    const value = Number(raw);
+    return Number.isFinite(value) ? value : null;
+  }, [searchParams]);
+
+  const { fix, error, isRefreshing, hasResolved, refresh, applyDemo } = useGeolocation();
+  const { prefs, update } = usePreferences();
+  const radar = useRainViewer(prefs.animateRadar);
+  const compass = useCompass(simulatedHeading);
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const headingUpActive = prefs.headingUp && compass.heading != null;
+  const showError =
+    Boolean(error) && (fix?.source === "demo" || fix?.source === "cached" || !fix);
+
+  return (
+    <div className="relative h-dvh w-full overflow-hidden bg-[#0b0d10] text-zinc-100">
+      {fix ? (
+        <RadarMap
+          lat={fix.lat}
+          lon={fix.lon}
+          accuracy={fix.accuracy}
+          heading={compass.heading}
+          followMe={prefs.followMe}
+          headingUp={headingUpActive}
+          tileTemplate={radar.tileTemplate}
+          onUserPan={() => {
+            if (prefs.followMe) update({ followMe: false });
+          }}
+        />
+      ) : (
+        <div className="grid h-full place-items-center px-6 text-center">
+          <div>
+            <p className="text-xs uppercase tracking-[0.25em] text-red-400">TeslaRadar</p>
+            <h1 className="mt-3 text-3xl font-semibold tracking-tight">
+              {hasResolved ? "No position yet" : "Locating…"}
+            </h1>
+            <p className="mt-2 max-w-sm text-sm text-zinc-400">
+              Requesting Chromium geolocation. Last GPS is restored from this device if
+              you have been here before.
+            </p>
+          </div>
+        </div>
+      )}
+
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 bg-gradient-to-b from-black/80 via-black/35 to-transparent pt-[max(0.75rem,env(safe-area-inset-top))]">
+        <header className="pointer-events-auto mx-auto flex w-full max-w-xl flex-col gap-3 px-3 pb-6">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.28em] text-red-400">
+                TeslaRadar
+              </p>
+              <h1 className="text-xl font-semibold tracking-tight">Live weather radar</h1>
+            </div>
+            {fix ? (
+              <span
+                className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${
+                  fix.source === "demo"
+                    ? "bg-amber-400 text-black"
+                    : "bg-emerald-500/20 text-emerald-300"
+                }`}
+              >
+                {sourceLabel(fix.source)}
+              </span>
+            ) : null}
+          </div>
+
+          {fix ? (
+            <div className="rounded-2xl border border-white/10 bg-black/55 px-3 py-2.5 backdrop-blur-md">
+              <p className="font-mono text-sm tracking-wide">
+                {formatLatLon(fix.lat, fix.lon)}
+              </p>
+              <p className="mt-1 text-xs text-zinc-400">
+                {formatAccuracy(fix.accuracy)}
+                {" · "}
+                Updated {formatClock(fix.timestamp)}
+                {" · "}
+                {formatRelative(fix.timestamp, now)}
+              </p>
+              {fix.source === "demo" ? (
+                <p className="mt-1 text-xs font-medium text-amber-300">
+                  DEMO — {fix.demoLabel ?? "sample city"} (not your live position)
+                </p>
+              ) : null}
+              {fix.source === "cached" ? (
+                <p className="mt-1 text-xs text-sky-300">
+                  Showing last GPS while a fresh fix arrives.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {showError && error ? (
+            <div className="rounded-2xl border border-amber-400/30 bg-amber-500/10 px-3 py-3">
+              <p className="text-sm font-semibold text-amber-200">{errorCopy(error).title}</p>
+              <p className="mt-1 text-xs leading-relaxed text-amber-100/80">
+                {errorCopy(error).body}
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button type="button" className="hud-btn" onClick={refresh}>
+                  Retry location
+                </button>
+                <button type="button" className="hud-btn" onClick={() => applyDemo("nashville")}>
+                  DEMO Nashville
+                </button>
+                <button type="button" className="hud-btn" onClick={() => applyDemo("traverse")}>
+                  DEMO Traverse City
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </header>
+      </div>
+
+      <div className="pointer-events-none absolute right-3 top-[min(42vh,22rem)] z-10">
+        <CompassBadge heading={compass.heading} status={compass.status} />
+      </div>
+
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/85 via-black/40 to-transparent pb-[max(0.85rem,env(safe-area-inset-bottom))] pt-10">
+        <div className="pointer-events-auto mx-auto flex w-full max-w-xl flex-col gap-3 px-3">
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className="hud-btn hud-btn-primary"
+              onClick={() => {
+                refresh();
+                void radar.reload();
+              }}
+              disabled={isRefreshing}
+            >
+              {isRefreshing ? "Refreshing…" : "Refresh now"}
+            </button>
+            <button
+              type="button"
+              className={`hud-btn ${prefs.animateRadar ? "hud-btn-on" : ""}`}
+              onClick={() => update({ animateRadar: !prefs.animateRadar })}
+              disabled={!radar.frames.length}
+            >
+              {prefs.animateRadar ? "Pause radar" : "Play radar"}
+            </button>
+            <button
+              type="button"
+              className={`hud-btn ${prefs.followMe ? "hud-btn-on" : ""}`}
+              onClick={() => update({ followMe: !prefs.followMe })}
+            >
+              {prefs.followMe ? "Following" : "Follow me"}
+            </button>
+            <button
+              type="button"
+              className={`hud-btn ${headingUpActive ? "hud-btn-on" : ""}`}
+              onClick={() => update({ headingUp: !prefs.headingUp })}
+              disabled={compass.heading == null}
+              title={
+                compass.heading == null
+                  ? "Heading-up needs a compass reading"
+                  : "Toggle heading-up vs north-up"
+              }
+            >
+              {headingUpActive ? "Heading-up" : "North-up"}
+            </button>
+            {compass.status === "needs-permission" ? (
+              <button
+                type="button"
+                className="hud-btn"
+                onClick={() => void compass.requestPermission()}
+              >
+                Enable compass
+              </button>
+            ) : null}
+          </div>
+
+          <div className="flex items-end justify-between gap-3 text-[11px] text-zinc-400">
+            <p>
+              {radar.frame
+                ? `Radar ${formatClock(radar.frame.time)} · ${radar.frameIndex + 1}/${radar.frames.length || 1}`
+                : radar.isLoading
+                  ? "Loading RainViewer…"
+                  : (radar.error ?? "No radar frames")}
+              {" · "}
+              Location poll {LOCATION_POLL_MS / 60000} min
+            </p>
+            <p className="text-right">
+              Radar by{" "}
+              <a
+                className="underline decoration-white/20 underline-offset-2"
+                href="https://www.rainviewer.com/api.html"
+                target="_blank"
+                rel="noreferrer"
+              >
+                RainViewer
+              </a>
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
