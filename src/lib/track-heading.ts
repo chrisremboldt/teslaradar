@@ -1,5 +1,6 @@
 /** Defaults match `TRACK_*` / `RANGE_*` in constants.ts so this module stays import-free for Node tests. */
 const DEFAULT_WINDOW_MS = 5 * 60 * 1000;
+const DEFAULT_RECENT_WINDOW_MS = 45_000;
 const DEFAULT_MIN_SEGMENT_M = 20;
 const DEFAULT_MAX_ACCURACY_M = 200;
 const DEFAULT_MIN_SPEED_MPS = 0.75;
@@ -82,10 +83,13 @@ export type TrackSegment = {
   dist: number;
   dtMs: number;
   bearing: number;
+  endTimestamp: number;
 };
 
 export type TrackFilterOptions = {
   windowMs?: number;
+  /** When set, speed only uses segments that end inside this recent window. */
+  recentWindowMs?: number;
   minSegmentM?: number;
   maxAccuracyM?: number;
   minSpeedMps?: number;
@@ -95,6 +99,7 @@ export type TrackFilterOptions = {
 function resolveFilters(options?: TrackFilterOptions) {
   return {
     windowMs: options?.windowMs ?? DEFAULT_WINDOW_MS,
+    recentWindowMs: options?.recentWindowMs,
     minSegmentM: options?.minSegmentM ?? DEFAULT_MIN_SEGMENT_M,
     maxAccuracyM: options?.maxAccuracyM ?? DEFAULT_MAX_ACCURACY_M,
     minSpeedMps: options?.minSpeedMps ?? DEFAULT_MIN_SPEED_MPS,
@@ -124,6 +129,7 @@ export function goodTrackSegments(
       dist,
       dtMs,
       bearing: initialBearingDegrees(usable[i - 1], usable[i]),
+      endTimestamp: usable[i].timestamp,
     });
   }
   return segments;
@@ -161,18 +167,37 @@ export function averageTrackSpeedMps(
   now = Date.now(),
   options?: TrackFilterOptions,
 ): number | null {
-  const { minSegmentM, minSpeedMps } = resolveFilters(options);
+  const { minSegmentM, minSpeedMps, recentWindowMs } = resolveFilters(options);
   const segments = goodTrackSegments(points, now, options);
+  const cutoff = recentWindowMs != null ? now - recentWindowMs : null;
   let totalDist = 0;
   let totalDtMs = 0;
+  let used = 0;
   for (const segment of segments) {
+    if (cutoff != null && segment.endTimestamp < cutoff) continue;
+    const hopSpeed = segment.dist / (segment.dtMs / 1000);
+    // Drop crawl / stoplight bridges so a fresh pull-away hop can stand alone.
+    if (hopSpeed < minSpeedMps) continue;
     totalDist += segment.dist;
     totalDtMs += segment.dtMs;
+    used += 1;
   }
-  if (segments.length < 1 || totalDist < minSegmentM || totalDtMs <= 0) return null;
+  if (used < 1 || totalDist < minSegmentM || totalDtMs <= 0) return null;
   const speed = totalDist / (totalDtMs / 1000);
   if (speed < minSpeedMps) return null;
   return speed;
+}
+
+/** Speed for range rings: recent fast hops only, so parked ↔ moving can flip. */
+export function recentTrackSpeedMps(
+  points: TrackPoint[],
+  now = Date.now(),
+  options?: TrackFilterOptions,
+): number | null {
+  return averageTrackSpeedMps(points, now, {
+    ...options,
+    recentWindowMs: options?.recentWindowMs ?? DEFAULT_RECENT_WINDOW_MS,
+  });
 }
 
 export function rangeRingMeters(

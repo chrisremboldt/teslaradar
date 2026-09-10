@@ -94,6 +94,49 @@ html.tesla-browser {
   position: relative;
 }
 
+.map-zoom {
+  position: absolute;
+  right: 0.75rem;
+  bottom: 7.5rem;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: var(--hud-bg);
+}
+
+@media (min-width: 640px) {
+  .map-zoom {
+    bottom: 8.5rem;
+    right: 1rem;
+  }
+}
+
+.map-zoom-btn {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  place-items: center;
+  border: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: transparent;
+  color: #e4e4e7;
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.map-zoom-btn:last-child {
+  border-bottom: 0;
+}
+
+.map-zoom-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
 .radar-map .maplibregl-ctrl-attrib {
   background: rgba(0, 0, 0, 0.55);
   color: #a1a1aa;

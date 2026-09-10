@@ -4,6 +4,7 @@ import {
   GEO_MAXIMUM_AGE_MS,
   LOCATION_POLL_MS,
   TRACK_MIN_SEGMENT_M,
+  TRACK_RECENT_WINDOW_MS,
   TRACK_WINDOW_MS,
 } from "./constants.ts";
 import {
@@ -14,6 +15,7 @@ import {
   initialBearingDegrees,
   pruneTrack,
   rangeRingRadii,
+  recentTrackSpeedMps,
   type TrackPoint,
 } from "./track-heading.ts";
 
@@ -182,6 +184,49 @@ test("parked jitter does not invent speed or rings", () => {
   const rings = rangeRingRadii(null);
   assert.equal(rings.range5m, null);
   assert.equal(rings.range30m, null);
+});
+
+test("TRACK_RECENT_WINDOW_MS is 45 seconds", () => {
+  assert.equal(TRACK_RECENT_WINDOW_MS, 45_000);
+  assert.ok(TRACK_RECENT_WINDOW_MS < TRACK_WINDOW_MS);
+});
+
+test("a stoplight bridge does not hide rings after the next fast hop", () => {
+  const t = 1_700_000_300_000;
+  const lat = 36.1627;
+  const lon = -86.7816;
+  const stopped = [
+    point(lat, lon, t - 299_000),
+    point(lat, eastOf(lat, lon, 80), t - 4_000),
+  ];
+  assert.equal(
+    recentTrackSpeedMps(stopped, t),
+    null,
+    "the long stop-to-go crawl is not recent motion",
+  );
+  const rolling = [
+    ...stopped,
+    point(lat, eastOf(lat, lon, 160), t),
+  ];
+  const recent = recentTrackSpeedMps(rolling, t);
+  assert.ok(recent != null, "the 4s pull-away hop must restore moving speed");
+  assert.ok(Math.abs(recent - 20) < 0.5, `recent speed ${recent}`);
+  const rings = rangeRingRadii(recent);
+  assert.ok(rings.range5m != null && rings.range30m != null);
+});
+
+test("recent speed hides rings after sitting with no new motion", () => {
+  const t = 1_700_000_300_000;
+  const lat = 36.1627;
+  const lon = -86.7816;
+  const points = [
+    point(lat, lon, t - 90_000),
+    point(lat, eastOf(lat, lon, 80), t - 86_000),
+    point(lat, eastOf(lat, lon, 80), t - 40_000),
+    point(lat, eastOf(lat, lon, 80), t),
+  ];
+  assert.ok(recentTrackSpeedMps(points, t - 86_000) != null);
+  assert.equal(recentTrackSpeedMps(points, t), null);
 });
 
 test("implausible teleport hops are not used for speed", () => {
