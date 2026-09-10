@@ -67,8 +67,10 @@ export function RadarDashboard() {
     return Number.isFinite(value) ? value : null;
   }, [searchParams]);
 
-  const { fix, error, isRefreshing, hasResolved, refresh, applyDemo } = useGeolocation();
   const { prefs, update } = usePreferences();
+  const { fix, error, isRefreshing, hasResolved, refresh, applyDemo } = useGeolocation({
+    continuous: prefs.followMe,
+  });
   const radar = useRainViewer(prefs.animateRadar);
   const compass = useCompass(simulatedHeading);
   const ownship = useOwnshipTrack(fix);

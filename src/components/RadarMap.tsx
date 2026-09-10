@@ -2,16 +2,20 @@
 
 import { useEffect, useRef, useState } from "react";
 import { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
-import type { JumpToOptions } from "maplibre-gl";
+import type { EaseToOptions, JumpToOptions } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { RadarOverlay } from "@/components/RadarOverlay";
 import { RangeRingsOverlay } from "@/components/RangeRingsOverlay";
 import {
+  FOLLOW_EASE_MS,
+  FOLLOW_JUMP_METERS,
   MAP_DEFAULT_ZOOM,
   MAP_MAX_ZOOM,
   OSM_ATTRIBUTION,
   OSM_RASTER_TILES,
+  USER_PAN_MIN_PX,
 } from "@/lib/constants";
+import { planFollowCamera, shouldTreatAsUserPan } from "@/lib/follow-camera";
 import { normalizeHeading } from "@/lib/format";
 import { accuracyCircle, emptyCollection, ringLabelLngLat } from "@/lib/geo";
 import type { RadarFrame } from "@/lib/types";
@@ -56,6 +60,28 @@ function placeRangeLabel(marker: Marker, lon: number, lat: number, radius: numbe
   if (show && radius) marker.setLngLat(ringLabelLngLat(lon, lat, radius));
 }
 
+function publishFollowState(
+  root: HTMLElement | null,
+  map: MapLibreMap,
+  marker: Marker | null,
+) {
+  if (!root) return;
+  const center = map.getCenter();
+  root.dataset.mapCenterLat = center.lat.toFixed(6);
+  root.dataset.mapCenterLon = center.lng.toFixed(6);
+  root.dataset.mapZoom = map.getZoom().toFixed(2);
+  root.dataset.mapBearing = map.getBearing().toFixed(1);
+  if (!marker) return;
+  const mapEl = map.getContainer();
+  const markerBox = marker.getElement().getBoundingClientRect();
+  const mapBox = mapEl.getBoundingClientRect();
+  if (mapBox.width <= 0 || mapBox.height <= 0) return;
+  root.dataset.markerX = (markerBox.left + markerBox.width / 2 - mapBox.left).toFixed(1);
+  root.dataset.markerY = (markerBox.top + markerBox.height / 2 - mapBox.top).toFixed(1);
+  root.dataset.viewportW = mapBox.width.toFixed(1);
+  root.dataset.viewportH = mapBox.height.toFixed(1);
+}
+
 export function RadarMap({
   lat,
   lon,
@@ -72,11 +98,17 @@ export function RadarMap({
   onUserPan,
 }: RadarMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markerRef = useRef<Marker | null>(null);
   const label5Ref = useRef<Marker | null>(null);
   const label30Ref = useRef<Marker | null>(null);
   const onUserPanRef = useRef(onUserPan);
+  const programmaticMoveRef = useRef(false);
+  const programmaticGenRef = useRef(0);
+  const followMeRef = useRef(followMe);
+  const hasFollowLockedRef = useRef(false);
+  const lastOwnshipRef = useRef({ lat, lon });
   const [map, setMap] = useState<MapLibreMap | null>(null);
 
   useEffect(() => {
@@ -170,12 +202,43 @@ export function RadarMap({
         },
       });
       applyAccuracy(mapInstance, lon, lat, accuracy);
+      publishFollowState(rootRef.current, mapInstance, marker);
       setMap(mapInstance);
     });
 
-    mapInstance.on("dragstart", () => {
-      onUserPanRef.current();
-    });
+    const publish = () => {
+      publishFollowState(rootRef.current, mapInstance, markerRef.current);
+    };
+    mapInstance.on("move", publish);
+    mapInstance.on("moveend", publish);
+
+    let dragStartLngLat: { lat: number; lng: number } | null = null;
+    const rememberDragStart = () => {
+      if (programmaticMoveRef.current) return;
+      dragStartLngLat = mapInstance.getCenter();
+    };
+    const maybeUserPan = (event: { originalEvent?: Event }) => {
+      const startLngLat = dragStartLngLat;
+      if (!startLngLat) return;
+      const start = mapInstance.project(startLngLat);
+      const end = mapInstance.project(mapInstance.getCenter());
+      if (
+        shouldTreatAsUserPan({
+          programmatic: programmaticMoveRef.current,
+          hasOriginalEvent: Boolean(event.originalEvent),
+          start: { x: start.x, y: start.y },
+          end: { x: end.x, y: end.y },
+          minPixels: USER_PAN_MIN_PX,
+        })
+      ) {
+        onUserPanRef.current();
+      }
+    };
+    mapInstance.on("dragstart", rememberDragStart);
+    mapInstance.on("drag", maybeUserPan);
+    mapInstance.on("dragend", maybeUserPan);
+
+    window.__TESLARADAR_MAP__ = mapInstance;
 
     mapRef.current = mapInstance;
     markerRef.current = marker;
@@ -183,6 +246,9 @@ export function RadarMap({
     label30Ref.current = label30;
 
     return () => {
+      if (window.__TESLARADAR_MAP__ === mapInstance) {
+        delete window.__TESLARADAR_MAP__;
+      }
       setMap(null);
       marker.remove();
       label5.remove();
@@ -227,22 +293,60 @@ export function RadarMap({
       if (label5Ref.current) placeRangeLabel(label5Ref.current, lon, lat, range5m);
       if (label30Ref.current) placeRangeLabel(label30Ref.current, lon, lat, range30m);
       const nextBearing = headingUp && rotateHeading != null ? rotateHeading : 0;
-      const camera: JumpToOptions = { bearing: nextBearing };
-      if (followMe) {
-        camera.center = [lon, lat];
+      const mapCenter = current.getCenter();
+      const followJustEnabled = followMe && !followMeRef.current;
+      const firstLock = followMe && !hasFollowLockedRef.current;
+      const positionChanged =
+        lastOwnshipRef.current.lat !== lat || lastOwnshipRef.current.lon !== lon;
+      const plan = planFollowCamera({
+        followMe,
+        ownship: { lat, lon },
+        mapCenter: { lat: mapCenter.lat, lon: mapCenter.lng },
+        bearing: nextBearing,
+        firstLock,
+        positionChanged,
+        followJustEnabled,
+        jumpMeters: FOLLOW_JUMP_METERS,
+      });
+      const camera: JumpToOptions & EaseToOptions = { bearing: plan.bearing };
+      if (plan.center) camera.center = plan.center;
+
+      const gen = programmaticGenRef.current + 1;
+      programmaticGenRef.current = gen;
+      programmaticMoveRef.current = true;
+      const clearProgrammatic = () => {
+        if (programmaticGenRef.current === gen) programmaticMoveRef.current = false;
+      };
+      current.once("moveend", clearProgrammatic);
+      window.setTimeout(clearProgrammatic, (plan.mode === "ease" ? FOLLOW_EASE_MS : 0) + 80);
+
+      if (plan.mode === "ease") {
+        current.stop();
+        current.easeTo({ ...camera, duration: FOLLOW_EASE_MS, essential: true });
+      } else {
+        current.jumpTo(camera);
       }
-      current.jumpTo(camera);
+
+      followMeRef.current = followMe;
+      lastOwnshipRef.current = { lat, lon };
+      if (followMe) hasFollowLockedRef.current = true;
+      publishFollowState(rootRef.current, current, marker);
     };
 
-    if (current.isStyleLoaded()) apply();
-    else current.once("load", apply);
+    // Do not gate on isStyleLoaded() — it goes false while OSM tiles or the
+    // accuracy source are loading, which skipped jumpTo/easeTo and left the
+    // chevron walking up a stuck map. Marker updates above always ran.
+    apply();
   }, [accuracy, followMe, heading, headingUp, lat, lon, map, mapHeading, range5m, range30m]);
 
   const frame = radarFrames[radarFrameIndex] ?? radarFrames.at(-1) ?? null;
 
   return (
     <div
+      ref={rootRef}
       className="relative h-full w-full"
+      data-map-root="true"
+      data-follow-camera={followMe ? "on" : "off"}
       data-radar-index={frame ? String(radarFrameIndex) : ""}
       data-radar-path={frame?.path ?? ""}
     >

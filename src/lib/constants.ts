@@ -2,7 +2,14 @@
 export const LOCATION_POLL_MS = 60_000;
 /** Always request a fresh fix so a 1-minute poll is not served a stale 30s+ reading. */
 export const GEO_MAXIMUM_AGE_MS = 0;
+/** watchPosition may reuse a ~1s reading so follow camera can tick without a new GPS lock every time. */
+export const GEO_WATCH_MAXIMUM_AGE_MS = 1_000;
 export const GEO_TIMEOUT_MS = 15_000;
+/** Modest GPS hops ease; larger teleports / first lock jump. */
+export const FOLLOW_EASE_MS = 400;
+export const FOLLOW_JUMP_METERS = 500;
+/** Tesla touch jitter / accidental contact below this does not turn Follow off. */
+export const USER_PAN_MIN_PX = 16;
 /** Rolling window for ownship track heading. */
 export const TRACK_WINDOW_MS = 5 * 60 * 1000;
 /** Ignore GPS jitter shorter than this when averaging course. */

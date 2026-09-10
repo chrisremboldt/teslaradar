@@ -14,6 +14,14 @@ declare global {
 
   interface Window {
     DeviceOrientationEvent: DeviceOrientationEventStatic;
+    __TESLARADAR_MAP__?: {
+      jumpTo: (opts: { zoom?: number; center?: [number, number]; bearing?: number }) => void;
+      easeTo: (opts: { zoom?: number; center?: [number, number]; bearing?: number; duration?: number }) => void;
+      getCenter: () => { lat: number; lng: number };
+      getZoom: () => number;
+      getBearing: () => number;
+      project: (lngLat: [number, number]) => { x: number; y: number };
+    };
   }
 
   interface AbsoluteOrientationSensor extends EventTarget {
