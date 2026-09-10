@@ -6,7 +6,10 @@ import {
   RADAR_OPTIONS,
   RAINVIEWER_API,
 } from "@/lib/constants";
+import { radarAnchorStillCovers } from "@/lib/radar-anchor";
 import type { RadarFrame, RainViewerCatalog } from "@/lib/types";
+
+export { radarAnchorStillCovers } from "@/lib/radar-anchor";
 
 type RainViewerApiResponse = {
   version?: string;

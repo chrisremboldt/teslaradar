@@ -1,4 +1,5 @@
 import { PLACE_CACHE_DECIMALS, PLACE_CACHE_STORAGE_KEY } from "@/lib/constants";
+import { placeLookupKey } from "@/lib/place-lookup";
 import { US_STATE_ABBREV } from "@/lib/us-states";
 
 export type NominatimAddress = {
@@ -26,7 +27,7 @@ let lastRequestAt = 0;
 let hydrating = false;
 
 function roundKey(lat: number, lon: number): string {
-  return `${lat.toFixed(PLACE_CACHE_DECIMALS)},${lon.toFixed(PLACE_CACHE_DECIMALS)}`;
+  return placeLookupKey(lat, lon, PLACE_CACHE_DECIMALS);
 }
 
 function hydrateSessionCache() {

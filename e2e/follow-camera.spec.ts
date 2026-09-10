@@ -99,6 +99,11 @@ async function openRadar(page: Page, followMe: boolean, first?: MockFix) {
       timeout: 25_000,
     })
     .toMatch(/rainviewer\.com|rvdl\.|\/256\/|\/512\//);
+  await expect(page.locator(".radar-overlay-canvas")).toHaveAttribute(
+    "data-radar-painted",
+    "1",
+    { timeout: 25_000 },
+  );
 }
 
 async function pushGeo(page: Page, next: MockFix) {

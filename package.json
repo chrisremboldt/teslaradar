@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test": "node --experimental-strip-types --test src/lib/track-heading.test.ts src/lib/follow-camera.test.ts src/lib/geolocation-watch.test.ts src/lib/tesla-browser.test.ts",
+    "test": "node --experimental-strip-types --test src/lib/track-heading.test.ts src/lib/follow-camera.test.ts src/lib/geolocation-watch.test.ts src/lib/tesla-browser.test.ts src/lib/place-lookup.test.ts src/lib/radar-anchor.test.ts",
     "test:e2e": "playwright test"
   },
   "dependencies": {
