@@ -36,7 +36,8 @@ export function formatRadarCoord(value: number): string {
 /**
  * RainViewer coordinate-centered composite (not a MapLibre tile template).
  * `{host}{path}/{size}/{z}/{lat}/{lon}/{color}/{options}.png`
- * Query `rv` is unique per frame path so Chromium cannot reuse one PNG for every frame.
+ * Frame `path` is already unique (hash/time). Do not append query strings —
+ * RainViewer 404s them, which is how a cache-bust param blanked the overlay.
  */
 export function radarImageUrl(
   host: string,
@@ -45,21 +46,19 @@ export function radarImageUrl(
 ): string {
   const lat = formatRadarCoord(anchor.lat);
   const lon = formatRadarCoord(anchor.lon);
-  const bust = path.replace(/[^\w-]+/g, "") || String(anchor.zoom);
-  return `${host}${path}/${anchor.size}/${anchor.zoom}/${lat}/${lon}/${RADAR_COLOR_SCHEME}/${RADAR_OPTIONS}.png?rv=${bust}`;
+  return `${host}${path}/${anchor.size}/${anchor.zoom}/${lat}/${lon}/${RADAR_COLOR_SCHEME}/${RADAR_OPTIONS}.png`;
 }
 
-/** Integer zoom ≤7 so one 256-mercator tile covers the viewport (plus rotation pad). */
+/** Integer zoom 5–7: glanceable in-car coverage, never a continent-scale tile. */
 export function chooseRadarImageZoom(
   mapZoom: number,
   width: number,
   height: number,
 ): number {
-  const cover = Math.max(Math.hypot(width, height) * 1.15, RADAR_IMAGE_SIZE);
-  // Treat a RainViewer tile as 256 CSS px at matching zoom so we pick a lower z
-  // (more coverage) if MapLibre's internal world is 512 px.
-  const delta = Math.log2(cover / 256);
-  return Math.max(0, Math.min(RADAR_MAX_NATIVE_ZOOM, Math.floor(mapZoom - delta)));
+  const cover = Math.max(Math.max(width, height) * 1.05, RADAR_IMAGE_SIZE);
+  const delta = Math.log2(cover / 512);
+  const computed = Math.floor(mapZoom - delta);
+  return Math.max(5, Math.min(RADAR_MAX_NATIVE_ZOOM, computed));
 }
 
 export function radarImageAnchor(
