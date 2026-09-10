@@ -140,7 +140,6 @@ export function useGeolocation(options: UseGeolocationOptions = {}) {
 
   useEffect(() => {
     if (typeof navigator === "undefined" || !navigator.geolocation) {
-      if (continuous) fail("unsupported");
       return;
     }
     if (!continuous) {

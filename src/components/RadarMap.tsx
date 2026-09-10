@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
-import type { EaseToOptions, JumpToOptions, MapMouseEvent, MapTouchEvent } from "maplibre-gl";
+import type { EaseToOptions, JumpToOptions } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { RadarOverlay } from "@/components/RadarOverlay";
 import { RangeRingsOverlay } from "@/components/RangeRingsOverlay";
@@ -212,26 +212,29 @@ export function RadarMap({
     mapInstance.on("move", publish);
     mapInstance.on("moveend", publish);
 
-    let dragStartPoint: { x: number; y: number } | null = null;
-    const rememberDragStart = (event: MapMouseEvent | MapTouchEvent) => {
+    let dragStartLngLat: { lat: number; lng: number } | null = null;
+    const rememberDragStart = () => {
       if (programmaticMoveRef.current) return;
-      dragStartPoint = { x: event.point.x, y: event.point.y };
+      dragStartLngLat = mapInstance.getCenter();
     };
-    const maybeUserPan = (event: MapMouseEvent | MapTouchEvent) => {
+    const maybeUserPan = (event: { originalEvent?: Event }) => {
+      const startLngLat = dragStartLngLat;
+      if (!startLngLat) return;
+      const start = mapInstance.project(startLngLat);
+      const end = mapInstance.project(mapInstance.getCenter());
       if (
         shouldTreatAsUserPan({
           programmatic: programmaticMoveRef.current,
           hasOriginalEvent: Boolean(event.originalEvent),
-          start: dragStartPoint,
-          end: { x: event.point.x, y: event.point.y },
+          start: { x: start.x, y: start.y },
+          end: { x: end.x, y: end.y },
           minPixels: USER_PAN_MIN_PX,
         })
       ) {
         onUserPanRef.current();
       }
     };
-    mapInstance.on("mousedown", rememberDragStart);
-    mapInstance.on("touchstart", rememberDragStart);
+    mapInstance.on("dragstart", rememberDragStart);
     mapInstance.on("drag", maybeUserPan);
     mapInstance.on("dragend", maybeUserPan);
 
