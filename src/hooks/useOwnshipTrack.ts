@@ -45,6 +45,11 @@ function toTrackPoint(fix: GeoFix): TrackPoint {
   };
 }
 
+function fixKey(fix: GeoFix | null): string | null {
+  if (!fix || fix.source === "demo") return null;
+  return `${fix.lat}:${fix.lon}:${fix.timestamp}`;
+}
+
 const TRACK_OPTIONS = {
   windowMs: TRACK_WINDOW_MS,
   minSegmentM: TRACK_MIN_SEGMENT_M,
@@ -64,6 +69,7 @@ const SPEED_OPTIONS = {
  */
 export function useOwnshipTrack(fix: GeoFix | null): OwnshipTrack {
   const [points, setPoints] = useState<TrackPoint[]>([]);
+  const [seenKey, setSeenKey] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -71,12 +77,15 @@ export function useOwnshipTrack(fix: GeoFix | null): OwnshipTrack {
     return () => window.clearInterval(timer);
   }, []);
 
-  const track =
-    fix && fix.source !== "demo" ? appendTrackPoint(points, toTrackPoint(fix)) : points;
-
-  useEffect(() => {
-    if (track !== points) setPoints(track);
-  }, [points, track]);
+  const key = fixKey(fix);
+  let track = points;
+  if (key !== seenKey) {
+    setSeenKey(key);
+    if (key && fix) {
+      track = appendTrackPoint(points, toTrackPoint(fix));
+      setPoints(track);
+    }
+  }
 
   if (!fix || fix.source === "demo") return EMPTY_TRACK;
   const heading = averageTrackHeading(track, now, TRACK_OPTIONS);
