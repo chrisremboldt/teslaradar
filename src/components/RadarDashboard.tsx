@@ -82,6 +82,9 @@ export function RadarDashboard() {
   const showError =
     Boolean(error) && (fix?.source === "demo" || fix?.source === "cached" || !fix);
   const placeLabel = place ?? (fix ? formatLatLon(fix.lat, fix.lon) : null);
+  const latestFrame = radar.frames.at(-1) ?? null;
+  const latestClock = latestFrame ? formatClock(latestFrame.time) : null;
+  const latestAge = latestFrame ? formatRelative(latestFrame.time, now) : null;
 
   return (
     <div className="relative h-dvh w-full overflow-hidden bg-[#0b0d10] text-zinc-100">
@@ -221,6 +224,8 @@ export function RadarDashboard() {
             <button
               type="button"
               className={`hud-btn ${prefs.followMe ? "hud-btn-on" : ""}`}
+              aria-pressed={prefs.followMe}
+              data-follow-me={prefs.followMe ? "on" : "off"}
               onClick={() => update({ followMe: !prefs.followMe })}
             >
               {prefs.followMe ? "Following" : "Follow me"}
@@ -250,21 +255,34 @@ export function RadarDashboard() {
           </div>
 
           <div className="flex items-end justify-between gap-3 text-[11px] text-zinc-500">
-            <p
-              data-radar-index={radar.frame ? String(radar.frameIndex) : ""}
-              data-radar-path={radar.frame?.path ?? ""}
-            >
-              {radar.frame
-                ? `Radar ${formatClock(radar.frame.time)} · ${radar.frameIndex + 1}/${radar.frames.length || 1}`
-                : radar.isLoading
-                  ? "Loading RainViewer…"
-                  : (radar.error ?? "No radar frames")}
-              {" · "}
-              Location poll {LOCATION_POLL_MS / 60000} min
-              {compass.status === "unavailable" || compass.status === "unknown" ? (
-                <span className="text-zinc-600"> · compass unavailable</span>
+            <div className="min-w-0">
+              <p
+                data-radar-index={radar.frame ? String(radar.frameIndex) : ""}
+                data-radar-path={radar.frame?.path ?? ""}
+              >
+                {radar.frame
+                  ? `Radar ${formatClock(radar.frame.time)} · ${radar.frameIndex + 1}/${radar.frames.length || 1}`
+                  : radar.isLoading
+                    ? "Loading RainViewer…"
+                    : (radar.error ?? "No radar frames")}
+                {" · "}
+                Location poll {LOCATION_POLL_MS / 60000} min
+                {compass.status === "unavailable" || compass.status === "unknown" ? (
+                  <span className="text-zinc-600"> · compass unavailable</span>
+                ) : null}
+              </p>
+              {latestFrame && latestClock && latestAge ? (
+                <p
+                  className="mt-0.5 text-[10px] tabular-nums text-zinc-600"
+                  title="Newest RainViewer past frame — data freshness, not the playhead"
+                  data-radar-latest={String(latestFrame.time)}
+                  data-radar-latest-clock={latestClock}
+                  data-radar-latest-age={latestAge}
+                >
+                  Latest {latestClock} · {latestAge}
+                </p>
               ) : null}
-            </p>
+            </div>
             <p className="max-w-[14rem] text-right leading-relaxed">
               Radar by{" "}
               <a

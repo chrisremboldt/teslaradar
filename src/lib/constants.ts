@@ -2,6 +2,8 @@ export const LOCATION_POLL_MS = 5 * 60 * 1000;
 export const RADAR_REFRESH_MS = 2 * 60 * 1000;
 export const LOCATION_STORAGE_KEY = "teslaradar:last-gps";
 export const PREFS_STORAGE_KEY = "teslaradar:prefs";
+/** v2: cold loads follow; older blobs with followMe:false from a pan are migrated once. */
+export const CURRENT_PREFS_VERSION = 2;
 export const PLACE_CACHE_STORAGE_KEY = "teslaradar:places";
 /** ~1.1 km — stable town label while driving, fewer Nominatim hits. */
 export const PLACE_CACHE_DECIMALS = 2;

@@ -1,12 +1,52 @@
-import { LOCATION_STORAGE_KEY, PREFS_STORAGE_KEY } from "@/lib/constants";
+import {
+  CURRENT_PREFS_VERSION,
+  LOCATION_STORAGE_KEY,
+  PREFS_STORAGE_KEY,
+} from "@/lib/constants";
 import { normalizeEpochMs } from "@/lib/time";
 import type { GeoFix, UserPrefs } from "@/lib/types";
 
 export const DEFAULT_PREFS: UserPrefs = {
+  prefsVersion: CURRENT_PREFS_VERSION,
   followMe: true,
   headingUp: true,
   animateRadar: true,
 };
+
+/**
+ * Prefs schema v2: follow-me is the cold-start / first-paint default.
+ *
+ * Older `teslaradar:prefs` blobs often have `followMe: false` because panning
+ * persisted that choice. Returning drivers who hard-refreshed then landed
+ * unfollowed even though `DEFAULT_PREFS.followMe` is true.
+ *
+ * On load, stored version < 2 is migrated once: `followMe` is forced true
+ * (headingUp / animateRadar kept) and `prefsVersion` is written to 2. This
+ * re-enables follow for drivers who had it stuck off.
+ *
+ * Every cold load also starts followed — `followMe: false` is a session
+ * choice after the user pans or taps Follow me off, not a durable pref.
+ * `savePrefs` still persists the off state so we do not fight mid-drive
+ * (in-memory snapshot + `prefsHydrated`). A full reload recenters.
+ */
+export function storedPrefsVersion(parsed: Partial<UserPrefs>): number {
+  return typeof parsed.prefsVersion === "number" && Number.isFinite(parsed.prefsVersion)
+    ? parsed.prefsVersion
+    : 1;
+}
+
+export function normalizeStoredPrefs(parsed: Partial<UserPrefs>): UserPrefs {
+  return {
+    prefsVersion: CURRENT_PREFS_VERSION,
+    // Cold load / first paint / hard refresh always follow. v2 also forces
+    // this once for older blobs that persisted followMe:false from a pan.
+    // Session pans and “Follow me” off still persist via savePrefs after
+    // hydrate — we do not flip follow back on mid-drive.
+    followMe: true,
+    headingUp: parsed.headingUp ?? DEFAULT_PREFS.headingUp,
+    animateRadar: parsed.animateRadar ?? DEFAULT_PREFS.animateRadar,
+  };
+}
 
 let prefsSnapshot: UserPrefs = DEFAULT_PREFS;
 let prefsHydrated = false;
@@ -93,11 +133,15 @@ export function loadPrefs(): UserPrefs {
     const raw = window.localStorage.getItem(PREFS_STORAGE_KEY);
     if (!raw) return DEFAULT_PREFS;
     const parsed = JSON.parse(raw) as Partial<UserPrefs>;
-    return {
-      followMe: parsed.followMe ?? DEFAULT_PREFS.followMe,
-      headingUp: parsed.headingUp ?? DEFAULT_PREFS.headingUp,
-      animateRadar: parsed.animateRadar ?? DEFAULT_PREFS.animateRadar,
-    };
+    const prefs = normalizeStoredPrefs(parsed);
+    if (storedPrefsVersion(parsed) < CURRENT_PREFS_VERSION) {
+      try {
+        window.localStorage.setItem(PREFS_STORAGE_KEY, JSON.stringify(prefs));
+      } catch {
+        // Quota or private mode — in-memory prefs still follow.
+      }
+    }
+    return prefs;
   } catch {
     return DEFAULT_PREFS;
   }
@@ -119,11 +163,16 @@ export function getPrefsSnapshot(): UserPrefs {
 }
 
 export function savePrefs(prefs: UserPrefs): void {
-  prefsSnapshot = prefs;
+  const next: UserPrefs = {
+    ...DEFAULT_PREFS,
+    ...prefs,
+    prefsVersion: CURRENT_PREFS_VERSION,
+  };
+  prefsSnapshot = next;
   prefsHydrated = true;
   if (typeof window === "undefined") return;
   try {
-    window.localStorage.setItem(PREFS_STORAGE_KEY, JSON.stringify(prefs));
+    window.localStorage.setItem(PREFS_STORAGE_KEY, JSON.stringify(next));
     emit(prefsListeners);
   } catch {
     emit(prefsListeners);
