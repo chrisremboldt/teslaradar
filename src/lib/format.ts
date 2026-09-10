@@ -1,3 +1,5 @@
+import { normalizeEpochMs } from "@/lib/time";
+
 export function formatLatLon(lat: number, lon: number): string {
   const ns = lat >= 0 ? "N" : "S";
   const ew = lon >= 0 ? "E" : "W";
@@ -10,8 +12,8 @@ export function formatAccuracy(meters: number | null): string {
   return `±${(meters / 1000).toFixed(1)} km`;
 }
 
-export function formatClock(timestamp: number): string {
-  return new Date(timestamp).toLocaleTimeString(undefined, {
+export function formatClock(timestamp: number, now = Date.now()): string {
+  return new Date(normalizeEpochMs(timestamp, now)).toLocaleTimeString(undefined, {
     hour: "numeric",
     minute: "2-digit",
     second: "2-digit",
@@ -19,14 +21,18 @@ export function formatClock(timestamp: number): string {
 }
 
 export function formatRelative(timestamp: number, now: number): string {
-  const delta = Math.max(0, now - timestamp);
+  const ms = normalizeEpochMs(timestamp, now);
+  const delta = Math.max(0, now - ms);
   const seconds = Math.round(delta / 1000);
   if (seconds < 10) return "just now";
   if (seconds < 60) return `${seconds}s ago`;
   const minutes = Math.round(seconds / 60);
   if (minutes < 60) return `${minutes}m ago`;
   const hours = Math.round(minutes / 60);
-  return `${hours}h ago`;
+  if (hours < 48) return `${hours}h ago`;
+  const days = Math.round(hours / 24);
+  if (days < 365) return `${days}d ago`;
+  return "just now";
 }
 
 export function formatHeading(degrees: number): string {

@@ -1,12 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import {
-  GeoJSONSource,
-  Map as MapLibreMap,
-  Marker,
-  RasterTileSource,
-} from "maplibre-gl";
+import { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
 import type { JumpToOptions } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
@@ -14,6 +9,8 @@ import {
   MAP_MAX_ZOOM,
   OSM_ATTRIBUTION,
   OSM_RASTER_TILES,
+  RADAR_CROSSFADE_MS,
+  RADAR_LAYER_OPACITY,
   RADAR_MAX_NATIVE_ZOOM,
 } from "@/lib/constants";
 import { accuracyCircle, emptyCollection } from "@/lib/geo";
@@ -29,6 +26,8 @@ type RadarMapProps = {
   onUserPan: () => void;
 };
 
+type RadarSlot = "radar-a" | "radar-b";
+
 function applyAccuracy(
   map: MapLibreMap,
   lon: number,
@@ -42,6 +41,77 @@ function applyAccuracy(
   } else {
     source.setData(emptyCollection());
   }
+}
+
+function removeRadarSlot(map: MapLibreMap, id: RadarSlot) {
+  if (map.getLayer(id)) map.removeLayer(id);
+  if (map.getSource(id)) map.removeSource(id);
+}
+
+function addRadarSlot(map: MapLibreMap, id: RadarSlot, tileTemplate: string, opacity: number) {
+  removeRadarSlot(map, id);
+  map.addSource(id, {
+    type: "raster",
+    tiles: [tileTemplate],
+    tileSize: 256,
+    maxzoom: RADAR_MAX_NATIVE_ZOOM,
+    attribution: '<a href="https://www.rainviewer.com/api.html">RainViewer</a>',
+  });
+  map.addLayer(
+    {
+      id,
+      type: "raster",
+      source: id,
+      paint: {
+        "raster-opacity": opacity,
+        "raster-fade-duration": 0,
+        "raster-opacity-transition": { duration: RADAR_CROSSFADE_MS, delay: 0 },
+      },
+    },
+    map.getLayer("accuracy-fill") ? "accuracy-fill" : undefined,
+  );
+}
+
+type FadeTimers = { kick: number; cleanup: number };
+
+function clearFadeTimers(timers: FadeTimers) {
+  window.clearTimeout(timers.kick);
+  window.clearTimeout(timers.cleanup);
+}
+
+/**
+ * Tesla's Chromium / MapLibre often keeps cached raster tiles after
+ * `RasterTileSource.setTiles()`. Force a reload by removing and re-adding the
+ * incoming source, then crossfading two radar layers.
+ */
+function showRadarFrame(
+  map: MapLibreMap,
+  tileTemplate: string,
+  activeSlot: RadarSlot | null,
+): { next: RadarSlot; timers: FadeTimers } {
+  const next: RadarSlot = activeSlot === "radar-a" ? "radar-b" : "radar-a";
+  const outgoing = activeSlot;
+  const first = outgoing == null || !map.getLayer(outgoing);
+  addRadarSlot(map, next, tileTemplate, first ? RADAR_LAYER_OPACITY : 0);
+
+  if (first || !outgoing) {
+    return { next, timers: { kick: 0, cleanup: 0 } };
+  }
+
+  const kick = window.setTimeout(() => {
+    if (!map.getStyle()) return;
+    map.setPaintProperty(next, "raster-opacity", RADAR_LAYER_OPACITY);
+    if (map.getLayer(outgoing)) {
+      map.setPaintProperty(outgoing, "raster-opacity", 0);
+    }
+  }, 32);
+
+  const cleanup = window.setTimeout(() => {
+    if (!map.getStyle()) return;
+    removeRadarSlot(map, outgoing);
+  }, RADAR_CROSSFADE_MS + 80);
+
+  return { next, timers: { kick, cleanup } };
 }
 
 export function RadarMap({
@@ -59,6 +129,8 @@ export function RadarMap({
   const markerRef = useRef<Marker | null>(null);
   const onUserPanRef = useRef(onUserPan);
   const lastTileRef = useRef<string | null>(null);
+  const activeSlotRef = useRef<RadarSlot | null>(null);
+  const fadeTimersRef = useRef<FadeTimers>({ kick: 0, cleanup: 0 });
 
   useEffect(() => {
     onUserPanRef.current = onUserPan;
@@ -136,25 +208,7 @@ export function RadarMap({
           "line-width": 1,
         },
       });
-      map.addSource("radar", {
-        type: "raster",
-        tiles: tileTemplate ? [tileTemplate] : [],
-        tileSize: 256,
-        maxzoom: RADAR_MAX_NATIVE_ZOOM,
-        attribution:
-          '<a href="https://www.rainviewer.com/api.html">RainViewer</a>',
-      });
-      map.addLayer({
-        id: "radar",
-        type: "raster",
-        source: "radar",
-        paint: {
-          "raster-opacity": 0.78,
-          "raster-fade-duration": 0,
-        },
-      });
       applyAccuracy(map, lon, lat, accuracy);
-      lastTileRef.current = tileTemplate;
     });
 
     map.on("dragstart", () => {
@@ -165,10 +219,13 @@ export function RadarMap({
     markerRef.current = marker;
 
     return () => {
+      clearFadeTimers(fadeTimersRef.current);
       marker.remove();
       map.remove();
       mapRef.current = null;
       markerRef.current = null;
+      activeSlotRef.current = null;
+      lastTileRef.current = null;
     };
     // Map is created once for the session; camera updates happen in the effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -203,9 +260,10 @@ export function RadarMap({
     if (!map || !tileTemplate || tileTemplate === lastTileRef.current) return;
 
     const applyTiles = () => {
-      const source = map.getSource("radar") as RasterTileSource | undefined;
-      if (!source) return;
-      source.setTiles([tileTemplate]);
+      clearFadeTimers(fadeTimersRef.current);
+      const { next, timers } = showRadarFrame(map, tileTemplate, activeSlotRef.current);
+      activeSlotRef.current = next;
+      fadeTimersRef.current = timers;
       lastTileRef.current = tileTemplate;
     };
 
@@ -213,5 +271,11 @@ export function RadarMap({
     else map.once("load", applyTiles);
   }, [tileTemplate]);
 
-  return <div ref={containerRef} className="radar-map h-full w-full" />;
+  return (
+    <div
+      ref={containerRef}
+      className="radar-map h-full w-full"
+      data-radar-tiles={tileTemplate ?? ""}
+    />
+  );
 }

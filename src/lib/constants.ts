@@ -2,6 +2,9 @@ export const LOCATION_POLL_MS = 5 * 60 * 1000;
 export const RADAR_REFRESH_MS = 2 * 60 * 1000;
 export const LOCATION_STORAGE_KEY = "teslaradar:last-gps";
 export const PREFS_STORAGE_KEY = "teslaradar:prefs";
+export const PLACE_CACHE_STORAGE_KEY = "teslaradar:places";
+/** ~1.1 km — stable town label while driving, fewer Nominatim hits. */
+export const PLACE_CACHE_DECIMALS = 2;
 
 export const RAINVIEWER_API = "https://api.rainviewer.com/public/weather-maps.json";
 export const RADAR_TILE_SIZE = 256;
@@ -38,3 +41,6 @@ export const OSM_RASTER_TILES = [
 ];
 export const OSM_ATTRIBUTION =
   '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+export const NOMINATIM_ATTRIBUTION = "Places © OpenStreetMap (Nominatim)";
+export const RADAR_LAYER_OPACITY = 0.78;
+export const RADAR_CROSSFADE_MS = 180;

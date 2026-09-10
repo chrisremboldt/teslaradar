@@ -1,4 +1,5 @@
 import { LOCATION_STORAGE_KEY, PREFS_STORAGE_KEY } from "@/lib/constants";
+import { normalizeEpochMs } from "@/lib/time";
 import type { GeoFix, UserPrefs } from "@/lib/types";
 
 export const DEFAULT_PREFS: UserPrefs = {
@@ -32,7 +33,10 @@ export function loadCachedGps(): GeoFix | null {
       lat: parsed.lat,
       lon: parsed.lon,
       accuracy: typeof parsed.accuracy === "number" ? parsed.accuracy : null,
-      timestamp: typeof parsed.timestamp === "number" ? parsed.timestamp : Date.now(),
+      timestamp:
+        typeof parsed.timestamp === "number"
+          ? normalizeEpochMs(parsed.timestamp)
+          : Date.now(),
       source: "cached",
     };
   } catch {
