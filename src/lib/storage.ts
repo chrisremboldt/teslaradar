@@ -3,7 +3,7 @@ import type { GeoFix, UserPrefs } from "@/lib/types";
 
 export const DEFAULT_PREFS: UserPrefs = {
   followMe: true,
-  headingUp: false,
+  headingUp: true,
   animateRadar: true,
 };
 

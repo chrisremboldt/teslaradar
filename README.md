@@ -11,7 +11,7 @@ Production target: [https://teslaradar.vercel.app](https://teslaradar.vercel.app
 - Persists the last successful GPS fix in `localStorage` so the first paint is not blank while GPS wakes.
 - Overlays RainViewer radar tiles on a free Carto Dark / OpenStreetMap basemap (MapLibre).
 - Plays the past ~2 hours of radar (10-minute steps). Pause/play is in the HUD.
-- Uses Device Orientation / `AbsoluteOrientationSensor` / `deviceorientationabsolute` for heading when available. iOS needs a tap on **Enable compass**. If heading is missing, the map stays north-up and the HUD shows a muted “compass unavailable” note — the app still works.
+- Default map mode is **heading-up** (rotate with the device compass). Uses Device Orientation / `AbsoluteOrientationSensor` / `deviceorientationabsolute` when available. iOS needs a tap on **Enable compass**. If heading is missing, the map falls back to north-up and the HUD shows a muted “compass unavailable” note — the app still works. A control toggles north-up vs heading-up.
 - If location is denied or unavailable, you get a clear error plus labeled **DEMO** maps for Nashville, TN or Traverse City, MI (used only as a fallback, never as a silent substitute for a live fix).
 
 v1 location source is **Chromium browser APIs only**. Tesla Fleet API / OAuth is intentionally not implemented. A comment in the geolocation hook marks that as a future option.
@@ -23,7 +23,7 @@ v1 location source is **Chromium browser APIs only**. Tesla Fleet API / OAuth is
 | Location | `navigator.geolocation.getCurrentPosition` in the browser. 5-minute interval + visibility + manual refresh. Coordinates never leave the device. |
 | Radar | Client fetch of `https://api.rainviewer.com/public/weather-maps.json`. Tiles: `{host}{path}/{size}/{z}/{x}/{y}/{color}/{options}.png` with Universal Blue (scheme `2`), 256px tiles, `maxzoom` 7 (map may overzoom). Free-tier notes (2026): past frames ~2h / 10 min, rate limit on the order of 100 req/IP/min. |
 | Compass | Sensor / orientation events. Optional `?heading=247` simulates a heading for development or screenshots (labeled **Simulated heading**). |
-| Map | MapLibre GL + Carto Dark Matter raster tiles. No Mapbox token. Follow-me recenters; heading-up rotates the map when a heading exists. |
+| Map | MapLibre GL + Carto Dark Matter raster tiles. No Mapbox token. Follow-me recenters. Default is heading-up (map rotates with compass); north-up is a toggle. Falls back to north-up if heading is missing. |
 
 **Radar data by [RainViewer](https://www.rainviewer.com/api.html).** Basemap © OpenStreetMap contributors, © CARTO.
 
