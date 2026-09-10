@@ -32,8 +32,5 @@ export type DemoLocationId = keyof typeof DEMO_LOCATIONS;
 
 export const DEFAULT_DEMO = DEMO_LOCATIONS.nashville;
 
-export const CARTO_DARK_TILES = [
-  "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-  "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-  "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}@2x.png",
-];
+/** Free OSM dark style — no Mapbox or Carto token. */
+export const BASEMAP_STYLE = "https://tiles.openfreemap.org/styles/dark";

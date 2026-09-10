@@ -10,7 +10,7 @@ import {
 import type { JumpToOptions } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
-  CARTO_DARK_TILES,
+  BASEMAP_STYLE,
   MAP_DEFAULT_ZOOM,
   MAP_MAX_ZOOM,
   RADAR_MAX_NATIVE_ZOOM,
@@ -68,26 +68,17 @@ export function RadarMap({
 
     const map = new MapLibreMap({
       container: containerRef.current,
-      style: {
-        version: 8,
-        sources: {
-          carto: {
-            type: "raster",
-            tiles: CARTO_DARK_TILES,
-            tileSize: 256,
-            attribution:
-              '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>',
-          },
-        },
-        layers: [{ id: "carto", type: "raster", source: "carto" }],
-        glyphs: "https://demotiles.maplibre.org/font/{fontstack}/{range}.pbf",
-      },
+      style: BASEMAP_STYLE,
       center: [lon, lat],
       zoom: MAP_DEFAULT_ZOOM,
       maxZoom: MAP_MAX_ZOOM,
       minZoom: 3,
       attributionControl: { compact: true },
       fadeDuration: 0,
+      canvasContextAttributes: {
+        antialias: false,
+        failIfMajorPerformanceCaveat: false,
+      },
     });
 
     const markerEl = document.createElement("div");
