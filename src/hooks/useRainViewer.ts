@@ -7,6 +7,7 @@ import {
   RADAR_REFRESH_MS,
 } from "@/lib/constants";
 import { fetchRainViewerCatalog } from "@/lib/rainviewer";
+import { isTeslaBrowser } from "@/lib/tesla-browser";
 import type { RadarFrame, RainViewerCatalog } from "@/lib/types";
 
 /**
@@ -86,19 +87,30 @@ export function useRainViewer(animate: boolean) {
       }
     };
 
-    const loop = (ts: number) => {
-      raf = window.requestAnimationFrame(loop);
-      pump(ts);
-    };
-
     const onVisibility = () => {
       lastTs = performance.now();
       elapsed = 0;
     };
 
     document.addEventListener("visibilitychange", onVisibility);
+
+    // Tesla: one interval only. Phone/desktop keep rAF + a 250ms watchdog
+    // because split-view can freeze either timer by itself.
+    if (isTeslaBrowser()) {
+      const interval = window.setInterval(() => {
+        pump(performance.now());
+      }, RADAR_FRAME_MS);
+      return () => {
+        window.clearInterval(interval);
+        document.removeEventListener("visibilitychange", onVisibility);
+      };
+    }
+
+    const loop = (ts: number) => {
+      raf = window.requestAnimationFrame(loop);
+      pump(ts);
+    };
     raf = window.requestAnimationFrame(loop);
-    // Watchdog: if Tesla freezes rAF in split-view, still step while visible.
     const watchdog = window.setInterval(() => {
       pump(performance.now());
     }, 250);

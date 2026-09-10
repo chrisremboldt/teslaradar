@@ -18,6 +18,13 @@ import {
 import { isCameraOnTarget, planFollowCamera, shouldTreatAsUserPan } from "@/lib/follow-camera";
 import { normalizeHeading } from "@/lib/format";
 import { accuracyCircle, emptyCollection, ringLabelLngLat } from "@/lib/geo";
+import {
+  isTeslaBrowser,
+  mapMaxCanvasSize,
+  mapMaxTileCacheSize,
+  mapPixelRatioForBrowser,
+  preferJumpFollow,
+} from "@/lib/tesla-browser";
 import type { RadarFrame } from "@/lib/types";
 
 type RadarMapProps = {
@@ -109,7 +116,11 @@ export function RadarMap({
   const followMeRef = useRef(followMe);
   const hasFollowLockedRef = useRef(false);
   const lastOwnshipRef = useRef({ lat, lon });
+  const tesla = isTeslaBrowser();
+  const teslaRef = useRef(tesla);
+  teslaRef.current = tesla;
   const [map, setMap] = useState<MapLibreMap | null>(null);
+  const [mapError, setMapError] = useState<string | null>(null);
 
   useEffect(() => {
     onUserPanRef.current = onUserPan;
@@ -118,43 +129,69 @@ export function RadarMap({
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
-    const mapInstance = new MapLibreMap({
-      container: containerRef.current,
-      style: {
-        version: 8,
-        sources: {
-          osm: {
-            type: "raster",
-            tiles: OSM_RASTER_TILES,
-            tileSize: 256,
-            attribution: OSM_ATTRIBUTION,
-          },
-        },
-        layers: [
-          {
-            id: "osm",
-            type: "raster",
-            source: "osm",
-            paint: {
-              "raster-saturation": -0.85,
-              "raster-contrast": -0.15,
-              "raster-brightness-min": 0,
-              "raster-brightness-max": 0.38,
+    const constrained = teslaRef.current;
+    const pixelRatio = mapPixelRatioForBrowser(constrained, window.devicePixelRatio || 1);
+    let mapInstance: MapLibreMap;
+    try {
+      mapInstance = new MapLibreMap({
+        container: containerRef.current,
+        style: {
+          version: 8,
+          sources: {
+            osm: {
+              type: "raster",
+              tiles: OSM_RASTER_TILES,
+              tileSize: 256,
+              attribution: OSM_ATTRIBUTION,
             },
           },
-        ],
-      },
-      center: [lon, lat],
-      zoom: MAP_DEFAULT_ZOOM,
-      maxZoom: MAP_MAX_ZOOM,
-      minZoom: 3,
-      attributionControl: { compact: true },
-      fadeDuration: 0,
-      canvasContextAttributes: {
-        antialias: false,
-        failIfMajorPerformanceCaveat: false,
-      },
-    });
+          layers: [
+            {
+              id: "osm",
+              type: "raster",
+              source: "osm",
+              paint: {
+                "raster-saturation": -0.85,
+                "raster-contrast": -0.15,
+                "raster-brightness-min": 0,
+                "raster-brightness-max": 0.38,
+              },
+            },
+          ],
+        },
+        center: [lon, lat],
+        zoom: MAP_DEFAULT_ZOOM,
+        maxZoom: MAP_MAX_ZOOM,
+        minZoom: 3,
+        attributionControl: { compact: true },
+        fadeDuration: 0,
+        maxPitch: constrained ? 0 : 60,
+        pitchWithRotate: !constrained,
+        renderWorldCopies: !constrained,
+        refreshExpiredTiles: !constrained,
+        validateStyle: false,
+        pixelRatio,
+        maxTileCacheSize: mapMaxTileCacheSize(constrained),
+        maxTileCacheZoomLevels: constrained ? 2 : undefined,
+        maxCanvasSize: mapMaxCanvasSize(constrained),
+        canvasContextAttributes: {
+          antialias: false,
+          failIfMajorPerformanceCaveat: false,
+          preserveDrawingBuffer: false,
+          powerPreference: constrained ? "low-power" : "default",
+        },
+      });
+    } catch {
+      setMapError("Map failed to start in this browser.");
+      return;
+    }
+
+    const glCanvas = mapInstance.getCanvas();
+    const onContextLost = (event: Event) => {
+      event.preventDefault();
+      rootRef.current?.setAttribute("data-webgl", "lost");
+    };
+    glCanvas.addEventListener("webglcontextlost", onContextLost);
 
     const markerEl = document.createElement("div");
     markerEl.className = "tesla-location-marker";
@@ -246,6 +283,7 @@ export function RadarMap({
     label30Ref.current = label30;
 
     return () => {
+      glCanvas.removeEventListener("webglcontextlost", onContextLost);
       if (window.__TESLARADAR_MAP__ === mapInstance) {
         delete window.__TESLARADAR_MAP__;
       }
@@ -307,6 +345,7 @@ export function RadarMap({
         positionChanged,
         followJustEnabled,
         jumpMeters: FOLLOW_JUMP_METERS,
+        preferJump: preferJumpFollow(teslaRef.current),
       });
       const camera: JumpToOptions & EaseToOptions = { bearing: plan.bearing };
       if (plan.center) camera.center = plan.center;
@@ -354,10 +393,19 @@ export function RadarMap({
       className="relative h-full w-full"
       data-map-root="true"
       data-follow-camera={followMe ? "on" : "off"}
+      data-tesla-browser={tesla ? "on" : "off"}
+      data-map-pixel-ratio={String(
+        mapPixelRatioForBrowser(tesla, typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1),
+      )}
       data-radar-index={frame ? String(radarFrameIndex) : ""}
       data-radar-path={frame?.path ?? ""}
     >
       <div ref={containerRef} className="radar-map h-full w-full" />
+      {mapError ? (
+        <div className="absolute inset-0 grid place-items-center bg-[#0b0d10] px-6 text-center text-sm text-zinc-400">
+          {mapError}
+        </div>
+      ) : null}
       {map ? (
         <RadarOverlay
           map={map}

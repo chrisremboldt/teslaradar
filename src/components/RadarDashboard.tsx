@@ -10,7 +10,8 @@ import { usePreferences } from "@/hooks/usePreferences";
 import { useRainViewer } from "@/hooks/useRainViewer";
 import { useReverseGeocode } from "@/hooks/useReverseGeocode";
 import { useOwnshipTrack } from "@/hooks/useOwnshipTrack";
-import { LOCATION_POLL_MS, NOMINATIM_ATTRIBUTION } from "@/lib/constants";
+import { NOMINATIM_ATTRIBUTION } from "@/lib/constants";
+import { applyTeslaDocumentClass, isTeslaBrowser } from "@/lib/tesla-browser";
 import {
   formatAccuracy,
   formatClock,
@@ -67,10 +68,12 @@ export function RadarDashboard() {
     return Number.isFinite(value) ? value : null;
   }, [searchParams]);
 
+  const tesla = isTeslaBrowser();
   const { prefs, update } = usePreferences();
-  const { fix, error, isRefreshing, hasResolved, refresh, applyDemo } = useGeolocation({
-    continuous: prefs.followMe,
-  });
+  const { fix, error, isRefreshing, hasResolved, refresh, applyDemo, watching, pollIntervalMs } =
+    useGeolocation({
+      continuous: prefs.followMe,
+    });
   const radar = useRainViewer(prefs.animateRadar);
   const compass = useCompass(simulatedHeading);
   const ownship = useOwnshipTrack(fix);
@@ -83,6 +86,11 @@ export function RadarDashboard() {
     return () => window.clearInterval(timer);
   }, []);
 
+  useEffect(() => {
+    applyTeslaDocumentClass(tesla);
+    return () => applyTeslaDocumentClass(false);
+  }, [tesla]);
+
   const mapHeading = compass.heading ?? trackHeading;
   const headingUpActive = prefs.headingUp && mapHeading != null;
   const showError =
@@ -93,7 +101,11 @@ export function RadarDashboard() {
   const latestAge = latestFrame ? formatRelative(latestFrame.time, now) : null;
 
   return (
-    <div className="relative h-dvh w-full overflow-hidden bg-[#0b0d10] text-zinc-100">
+    <div
+      className="relative h-dvh w-full overflow-hidden bg-[#0b0d10] text-zinc-100"
+      data-tesla-browser={tesla ? "on" : "off"}
+      data-geo-watch={watching ? "on" : "off"}
+    >
       {fix ? (
         <RadarMap
           lat={fix.lat}
@@ -283,7 +295,10 @@ export function RadarDashboard() {
                     ? "Loading RainViewer…"
                     : (radar.error ?? "No radar frames")}
                 {" · "}
-                Location poll {LOCATION_POLL_MS / 60000} min
+                Location poll{" "}
+                {pollIntervalMs >= 60_000
+                  ? `${pollIntervalMs / 60_000} min`
+                  : `${pollIntervalMs / 1000} s`}
                 {trackHeading != null ? (
                   <span className="text-zinc-600">
                     {" "}

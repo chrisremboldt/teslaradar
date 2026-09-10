@@ -27,6 +27,8 @@ export function planFollowCamera(input: {
   positionChanged: boolean;
   followJustEnabled: boolean;
   jumpMeters?: number;
+  /** Tesla: never easeTo — CSS-transforming the GL canvas every frame OOMs the tab. */
+  preferJump?: boolean;
 }): FollowCameraPlan {
   const { bearing } = input;
   if (!input.followMe) {
@@ -43,7 +45,7 @@ export function planFollowCamera(input: {
 
   const distanceM = distanceMeters(input.mapCenter, input.ownship);
   const jumpMeters = input.jumpMeters ?? DEFAULT_FOLLOW_JUMP_METERS;
-  if (input.firstLock || distanceM >= jumpMeters) {
+  if (input.firstLock || distanceM >= jumpMeters || input.preferJump) {
     return { center, bearing, mode: "jump" };
   }
   return { center, bearing, mode: "ease" };

@@ -8,9 +8,11 @@ import {
   GEO_TIMEOUT_MS,
   GEO_WATCH_MAXIMUM_AGE_MS,
   LOCATION_POLL_MS,
+  TESLA_LOCATION_POLL_MS,
   type DemoLocationId,
 } from "@/lib/constants";
 import { shouldSkipPoll } from "@/lib/geolocation-watch";
+import { isTeslaBrowser, shouldWatchGeolocation } from "@/lib/tesla-browser";
 import {
   getCachedGpsSnapshot,
   saveCachedGps,
@@ -48,7 +50,9 @@ function classifyError(error: GeolocationPositionError | null): LocationErrorKin
 }
 
 export function useGeolocation(options: UseGeolocationOptions = {}) {
-  const continuous = Boolean(options.continuous);
+  const tesla = isTeslaBrowser();
+  const pollIntervalMs = tesla ? TESLA_LOCATION_POLL_MS : LOCATION_POLL_MS;
+  const continuous = Boolean(options.continuous) && shouldWatchGeolocation(tesla);
   const cached = useSyncExternalStore(
     subscribeCachedGps,
     getCachedGpsSnapshot,
@@ -183,13 +187,13 @@ export function useGeolocation(options: UseGeolocationOptions = {}) {
           watchActive: watchActiveRef.current,
           lastWatchAt: lastWatchAtRef.current,
           now: Date.now(),
-          pollIntervalMs: LOCATION_POLL_MS,
+          pollIntervalMs,
         })
       ) {
         return;
       }
       requestPosition();
-    }, LOCATION_POLL_MS);
+    }, pollIntervalMs);
     const onVisibility = () => {
       if (document.visibilityState === "visible") requestPosition();
     };
@@ -199,7 +203,7 @@ export function useGeolocation(options: UseGeolocationOptions = {}) {
       window.clearInterval(interval);
       document.removeEventListener("visibilitychange", onVisibility);
     };
-  }, [requestPosition]);
+  }, [pollIntervalMs, requestPosition]);
 
   const fix = live ?? cached;
 
@@ -210,5 +214,8 @@ export function useGeolocation(options: UseGeolocationOptions = {}) {
     hasResolved: hasResolved || Boolean(cached),
     refresh: requestPosition,
     applyDemo,
+    watching: continuous,
+    pollIntervalMs,
+    tesla,
   };
 }

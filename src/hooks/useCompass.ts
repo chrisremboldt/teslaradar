@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { normalizeHeading, shortestAngleDelta } from "@/lib/format";
+import { isTeslaBrowser } from "@/lib/tesla-browser";
 import type { CompassStatus } from "@/lib/types";
 
 function screenAngle(): number {
@@ -62,6 +63,12 @@ export function useCompass(simulatedHeading: number | null) {
   useEffect(() => {
     if (simulatedHeading != null) return;
     if (needsGesture && !iosGranted) return;
+    // Tesla exposes broken orientation / AbsoluteOrientationSensor stubs that
+    // have crashed the tab. Heading-up falls back to GPS track heading.
+    if (isTeslaBrowser()) {
+      setLiveStatus("unavailable");
+      return;
+    }
 
     let sensor: AbsoluteOrientationSensor | null = null;
     const onOrientation = (event: DeviceOrientationEvent) => {

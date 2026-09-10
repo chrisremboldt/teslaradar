@@ -18,6 +18,23 @@ test("FOLLOW_JUMP_METERS and USER_PAN_MIN_PX stay in the classic-nav range", () 
   assert.equal(USER_PAN_MIN_PX, 16);
 });
 
+test("preferJump turns a modest follow hop into a jump (Tesla)", () => {
+  const ownship = { lat: northOf(NASHVILLE.lat, 120), lon: NASHVILLE.lon };
+  const plan = planFollowCamera({
+    followMe: true,
+    ownship,
+    mapCenter: NASHVILLE,
+    bearing: 0,
+    firstLock: false,
+    positionChanged: true,
+    followJustEnabled: false,
+    jumpMeters: FOLLOW_JUMP_METERS,
+    preferJump: true,
+  });
+  assert.equal(plan.mode, "jump");
+  assert.deepEqual(plan.center, [ownship.lon, ownship.lat]);
+});
+
 test("followMe recenters on a new GPS fix (ease for a modest hop)", () => {
   const ownship = { lat: northOf(NASHVILLE.lat, 120), lon: NASHVILLE.lon };
   const plan = planFollowCamera({
