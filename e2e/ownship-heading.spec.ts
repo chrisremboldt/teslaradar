@@ -202,11 +202,12 @@ test.describe("ownship track heading", () => {
       accuracy: 10,
     });
 
+    const stopAt = Date.now();
     const stoppedLon = eastOf(NASHVILLE.lon, 80);
     await mockRefresh(page, {
       lat: NASHVILLE.lat,
       lon: stoppedLon,
-      timestamp: t - 4_000,
+      timestamp: stopAt,
       accuracy: 10,
     });
     await expect(page.locator("[data-place]")).toHaveAttribute("data-motion", "parked");
@@ -216,7 +217,7 @@ test.describe("ownship track heading", () => {
     await mockRefresh(page, {
       lat: NASHVILLE.lat,
       lon: eastOf(NASHVILLE.lon, 160),
-      timestamp: Date.now(),
+      timestamp: stopAt + 4_000,
       accuracy: 10,
     });
     await expect(page.locator("[data-place]")).toHaveAttribute("data-motion", "moving");
