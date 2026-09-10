@@ -83,8 +83,8 @@ async function refreshAt(
   latitude: number,
   longitude: number,
 ) {
-  await page.context().setGeolocation({ latitude, longitude, accuracy: 10 });
   const before = await page.locator("[data-place]").getAttribute("data-lon");
+  await page.context().setGeolocation({ latitude, longitude, accuracy: 10 });
   await page.getByRole("button", { name: /Refresh now|Refreshing/ }).click();
   await expect(page.getByRole("button", { name: "Refresh now" })).toBeEnabled({
     timeout: 20_000,
