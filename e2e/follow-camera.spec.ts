@@ -105,11 +105,10 @@ async function pushGeo(page: Page, next: MockFix) {
 }
 
 async function mapCenter(page: Page) {
-  const root = page.locator("[data-map-root]");
-  return {
-    lat: Number(await root.getAttribute("data-map-center-lat")),
-    lon: Number(await root.getAttribute("data-map-center-lon")),
-  };
+  return page.evaluate(() => {
+    const center = window.__TESLARADAR_MAP__?.getCenter();
+    return { lat: center?.lat ?? Number.NaN, lon: center?.lng ?? Number.NaN };
+  });
 }
 
 async function markerOffsetFromCenter(page: Page) {
@@ -137,7 +136,7 @@ test.describe("follow camera", () => {
     await expect.poll(async () => {
       const center = await mapCenter(page);
       return Math.abs(center.lat - nextLat);
-    }).toBeLessThan(CENTER_EPSILON_DEG);
+    }, { timeout: 10_000 }).toBeLessThan(CENTER_EPSILON_DEG);
     await expect.poll(async () => {
       const center = await mapCenter(page);
       return Math.abs(center.lon - NASHVILLE.lon);
@@ -156,7 +155,8 @@ test.describe("follow camera", () => {
   });
 
   test("Follow off does not chase ownship north", async ({ page }) => {
-    await openRadar(page, false);
+    await openRadar(page, true);
+    await page.getByRole("button", { name: "Following" }).click();
     await expect(page.locator("[data-follow-me]")).toHaveAttribute("data-follow-me", "off");
     const before = await mapCenter(page);
 
@@ -213,7 +213,7 @@ test.describe("follow camera", () => {
     await expect.poll(async () => {
       const center = await mapCenter(page);
       return Math.abs(center.lat - NASHVILLE.lat);
-    }).toBeLessThan(CENTER_EPSILON_DEG);
+    }, { timeout: 10_000 }).toBeLessThan(CENTER_EPSILON_DEG);
     await expect.poll(async () => {
       const offset = await markerOffsetFromCenter(page);
       return Math.hypot(offset.dx, offset.dy);

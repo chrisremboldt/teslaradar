@@ -333,8 +333,10 @@ export function RadarMap({
       publishFollowState(rootRef.current, current, marker);
     };
 
-    if (current.isStyleLoaded()) apply();
-    else current.once("load", apply);
+    // Do not gate on isStyleLoaded() — it goes false while OSM tiles or the
+    // accuracy source are loading, which skipped jumpTo/easeTo and left the
+    // chevron walking up a stuck map. Marker updates above always ran.
+    apply();
   }, [accuracy, followMe, heading, headingUp, lat, lon, map, mapHeading, range5m, range30m]);
 
   const frame = radarFrames[radarFrameIndex] ?? radarFrames.at(-1) ?? null;
