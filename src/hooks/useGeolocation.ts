@@ -6,9 +6,11 @@ import {
   DEMO_LOCATIONS,
   GEO_MAXIMUM_AGE_MS,
   GEO_TIMEOUT_MS,
+  GEO_WATCH_MAXIMUM_AGE_MS,
   LOCATION_POLL_MS,
   type DemoLocationId,
 } from "@/lib/constants";
+import { shouldSkipPoll } from "@/lib/geolocation-watch";
 import {
   getCachedGpsSnapshot,
   saveCachedGps,
@@ -27,6 +29,17 @@ export const GEO_OPTIONS: PositionOptions = {
   maximumAge: GEO_MAXIMUM_AGE_MS,
 };
 
+export const GEO_WATCH_OPTIONS: PositionOptions = {
+  enableHighAccuracy: true,
+  timeout: GEO_TIMEOUT_MS,
+  maximumAge: GEO_WATCH_MAXIMUM_AGE_MS,
+};
+
+export type UseGeolocationOptions = {
+  /** While Following, use watchPosition so the camera can track at GPS cadence. */
+  continuous?: boolean;
+};
+
 function classifyError(error: GeolocationPositionError | null): LocationErrorKind {
   if (!error) return "unavailable";
   if (error.code === error.PERMISSION_DENIED) return "denied";
@@ -34,7 +47,8 @@ function classifyError(error: GeolocationPositionError | null): LocationErrorKin
   return "unavailable";
 }
 
-export function useGeolocation() {
+export function useGeolocation(options: UseGeolocationOptions = {}) {
+  const continuous = Boolean(options.continuous);
   const cached = useSyncExternalStore(
     subscribeCachedGps,
     getCachedGpsSnapshot,
@@ -46,6 +60,8 @@ export function useGeolocation() {
   const [hasResolved, setHasResolved] = useState(false);
   const mounted = useRef(true);
   const liveRef = useRef<GeoFix | null>(null);
+  const lastWatchAtRef = useRef<number | null>(null);
+  const watchActiveRef = useRef(false);
 
   useEffect(() => {
     mounted.current = true;
@@ -123,8 +139,58 @@ export function useGeolocation() {
   }, [applyGps, fail]);
 
   useEffect(() => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      if (continuous) fail("unsupported");
+      return;
+    }
+    if (!continuous) {
+      watchActiveRef.current = false;
+      lastWatchAtRef.current = null;
+      return;
+    }
+
+    watchActiveRef.current = true;
+    let watchId: number | null = null;
+    try {
+      watchId = navigator.geolocation.watchPosition(
+        (position) => {
+          lastWatchAtRef.current = Date.now();
+          applyGps(position);
+        },
+        (geoError) => {
+          if (geoError.code === geoError.PERMISSION_DENIED) {
+            watchActiveRef.current = false;
+            fail(classifyError(geoError));
+          }
+          // Timeout / unavailable: keep the watch; the poll covers gaps.
+        },
+        GEO_WATCH_OPTIONS,
+      );
+    } catch {
+      watchActiveRef.current = false;
+    }
+
+    return () => {
+      watchActiveRef.current = false;
+      if (watchId != null) navigator.geolocation.clearWatch(watchId);
+    };
+  }, [applyGps, continuous, fail]);
+
+  useEffect(() => {
     const start = window.setTimeout(() => requestPosition(), 0);
-    const interval = window.setInterval(requestPosition, LOCATION_POLL_MS);
+    const interval = window.setInterval(() => {
+      if (
+        shouldSkipPoll({
+          watchActive: watchActiveRef.current,
+          lastWatchAt: lastWatchAtRef.current,
+          now: Date.now(),
+          pollIntervalMs: LOCATION_POLL_MS,
+        })
+      ) {
+        return;
+      }
+      requestPosition();
+    }, LOCATION_POLL_MS);
     const onVisibility = () => {
       if (document.visibilityState === "visible") requestPosition();
     };
