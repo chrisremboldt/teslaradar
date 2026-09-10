@@ -51,7 +51,10 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
     const canvas = document.createElement("canvas");
     canvas.className = "radar-overlay-canvas";
     canvas.setAttribute("aria-hidden", "true");
-    map.getCanvasContainer().appendChild(canvas);
+    // Sit on the map container, not MapLibre's transforming canvas-container.
+    // easeTo/jumpTo apply a CSS transform there; a child canvas then gets
+    // double-offset by map.project() and the radar paints off-screen.
+    map.getContainer().appendChild(canvas);
     canvasRef.current = canvas;
 
     const images = imagesRef.current;

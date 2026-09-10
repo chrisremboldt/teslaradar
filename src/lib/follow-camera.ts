@@ -49,6 +49,30 @@ export function planFollowCamera(input: {
   return { center, bearing, mode: "ease" };
 }
 
+export function shortestBearingDelta(from: number, to: number): number {
+  return ((((to - from) % 360) + 540) % 360) - 180;
+}
+
+/** Skip jumpTo/easeTo when the camera is already on the follow plan. */
+export function isCameraOnTarget(input: {
+  mapCenter: LngLat;
+  mapBearing: number;
+  plan: FollowCameraPlan;
+  centerEpsilonDeg?: number;
+  bearingEpsilonDeg?: number;
+}): boolean {
+  const bearingEps = input.bearingEpsilonDeg ?? 0.05;
+  if (Math.abs(shortestBearingDelta(input.mapBearing, input.plan.bearing)) > bearingEps) {
+    return false;
+  }
+  if (!input.plan.center) return true;
+  const eps = input.centerEpsilonDeg ?? 1e-7;
+  return (
+    Math.abs(input.mapCenter.lon - input.plan.center[0]) <= eps &&
+    Math.abs(input.mapCenter.lat - input.plan.center[1]) <= eps
+  );
+}
+
 export function isMeaningfulUserPan(
   start: { x: number; y: number },
   end: { x: number; y: number },

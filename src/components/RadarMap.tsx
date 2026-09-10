@@ -15,7 +15,7 @@ import {
   OSM_RASTER_TILES,
   USER_PAN_MIN_PX,
 } from "@/lib/constants";
-import { planFollowCamera, shouldTreatAsUserPan } from "@/lib/follow-camera";
+import { isCameraOnTarget, planFollowCamera, shouldTreatAsUserPan } from "@/lib/follow-camera";
 import { normalizeHeading } from "@/lib/format";
 import { accuracyCircle, emptyCollection, ringLabelLngLat } from "@/lib/geo";
 import type { RadarFrame } from "@/lib/types";
@@ -311,20 +311,27 @@ export function RadarMap({
       const camera: JumpToOptions & EaseToOptions = { bearing: plan.bearing };
       if (plan.center) camera.center = plan.center;
 
-      const gen = programmaticGenRef.current + 1;
-      programmaticGenRef.current = gen;
-      programmaticMoveRef.current = true;
-      const clearProgrammatic = () => {
-        if (programmaticGenRef.current === gen) programmaticMoveRef.current = false;
-      };
-      current.once("moveend", clearProgrammatic);
-      window.setTimeout(clearProgrammatic, (plan.mode === "ease" ? FOLLOW_EASE_MS : 0) + 80);
+      const alreadyThere = isCameraOnTarget({
+        mapCenter: { lat: mapCenter.lat, lon: mapCenter.lng },
+        mapBearing: current.getBearing(),
+        plan,
+      });
+      if (!alreadyThere) {
+        const gen = programmaticGenRef.current + 1;
+        programmaticGenRef.current = gen;
+        programmaticMoveRef.current = true;
+        const clearProgrammatic = () => {
+          if (programmaticGenRef.current === gen) programmaticMoveRef.current = false;
+        };
+        current.once("moveend", clearProgrammatic);
+        window.setTimeout(clearProgrammatic, (plan.mode === "ease" ? FOLLOW_EASE_MS : 0) + 80);
 
-      if (plan.mode === "ease") {
-        current.stop();
-        current.easeTo({ ...camera, duration: FOLLOW_EASE_MS, essential: true });
-      } else {
-        current.jumpTo(camera);
+        if (plan.mode === "ease") {
+          current.stop();
+          current.easeTo({ ...camera, duration: FOLLOW_EASE_MS, essential: true });
+        } else {
+          current.jumpTo(camera);
+        }
       }
 
       followMeRef.current = followMe;
