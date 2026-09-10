@@ -9,9 +9,11 @@ import {
 import {
   appendTrackPoint,
   averageTrackHeading,
+  averageTrackSpeedMps,
   haversineMeters,
   initialBearingDegrees,
   pruneTrack,
+  rangeRingRadii,
   type TrackPoint,
 } from "./track-heading.ts";
 
@@ -24,9 +26,8 @@ function point(
   return { lat, lon, timestamp, accuracy };
 }
 
-/** ~111.3 km per degree lon at the equator; 0.0003° ≈ 33 m. */
-function eastOf(lon: number, meters: number): number {
-  return lon + meters / 111_320;
+function eastOf(lat: number, lon: number, meters: number): number {
+  return lon + meters / (111_320 * Math.cos((lat * Math.PI) / 180));
 }
 
 function northOf(lat: number, meters: number): number {
@@ -51,7 +52,7 @@ test("eastward segments average near 90°", () => {
   const lat = 36.1627;
   const lon = -86.7816;
   const points = [0, 80, 160, 240, 320].map((meters, i) =>
-    point(lat, eastOf(lon, meters), t0 + i * 60_000),
+    point(lat, eastOf(lat, lon, meters), t0 + i * 60_000),
   );
   const heading = averageTrackHeading(points, t0 + 4 * 60_000);
   assert.ok(heading != null, "expected a track heading");
@@ -76,8 +77,8 @@ test("circular mean of east then slightly north stays near east", () => {
   const lon = -86.7816;
   const points = [
     point(lat, lon, t0),
-    point(lat, eastOf(lon, 200), t0 + 60_000),
-    point(northOf(lat, 40), eastOf(lon, 400), t0 + 120_000),
+    point(lat, eastOf(lat, lon, 200), t0 + 60_000),
+    point(northOf(lat, 40), eastOf(lat, lon, 400), t0 + 120_000),
   ];
   const heading = averageTrackHeading(points, t0 + 120_000);
   assert.ok(heading != null);
@@ -89,7 +90,7 @@ test("parked jitter does not invent a heading", () => {
   const lat = 36.1627;
   const lon = -86.7816;
   const points = [0, 1, 2, 3, 4].map((i) =>
-    point(northOf(lat, (i % 2) * 4), eastOf(lon, ((i + 1) % 2) * 6), t0 + i * 60_000),
+    point(northOf(lat, (i % 2) * 4), eastOf(lat, lon, ((i + 1) % 2) * 6), t0 + i * 60_000),
   );
   assert.equal(averageTrackHeading(points, t0 + 4 * 60_000), null);
 });
@@ -105,7 +106,7 @@ test("two points closer than the noise floor have no heading", () => {
   const lon = -86.7816;
   const points = [
     point(lat, lon, t0),
-    point(lat, eastOf(lon, TRACK_MIN_SEGMENT_M - 5), t0 + 60_000),
+    point(lat, eastOf(lat, lon, TRACK_MIN_SEGMENT_M - 5), t0 + 60_000),
   ];
   assert.ok(haversineMeters(points[0], points[1]) < TRACK_MIN_SEGMENT_M);
   assert.equal(averageTrackHeading(points, t0 + 60_000), null);
@@ -117,8 +118,8 @@ test("huge accuracy is ignored", () => {
   const lon = -86.7816;
   const points = [
     point(lat, lon, t0, 12),
-    point(lat, eastOf(lon, 200), t0 + 60_000, 800),
-    point(lat, eastOf(lon, 400), t0 + 120_000, 900),
+    point(lat, eastOf(lat, lon, 200), t0 + 60_000, 800),
+    point(lat, eastOf(lat, lon, 400), t0 + 120_000, 900),
   ];
   assert.equal(averageTrackHeading(points, t0 + 120_000), null);
 });
@@ -129,7 +130,7 @@ test("points older than 5 minutes are dropped", () => {
   const lon = -86.7816;
   const stale = [
     point(lat, lon, t0),
-    point(lat, eastOf(lon, 200), t0 + 60_000),
+    point(lat, eastOf(lat, lon, 200), t0 + 60_000),
   ];
   const now = t0 + TRACK_WINDOW_MS + 90_000;
   assert.equal(pruneTrack(stale, now).length, 0);
@@ -151,4 +152,46 @@ test("initialBearingDegrees east is ~90", () => {
     { lat: 0, lon: 0.01 },
   );
   assert.ok(Math.abs(bearing - 90) < 1, `bearing ${bearing}`);
+});
+
+test("1 km per minute averages ~16.7 m/s and 5/30 min rings", () => {
+  const t0 = 1_700_000_000_000;
+  const lat = 36.1627;
+  const lon = -86.7816;
+  const points = [0, 1000, 2000, 3000, 4000].map((meters, i) =>
+    point(lat, eastOf(lat, lon, meters), t0 + i * 60_000),
+  );
+  const speed = averageTrackSpeedMps(points, t0 + 4 * 60_000);
+  assert.ok(speed != null);
+  assert.ok(Math.abs(speed - 1000 / 60) < 0.15, `speed ${speed}`);
+  const rings = rangeRingRadii(speed);
+  assert.ok(rings.range5m != null && rings.range30m != null);
+  assert.ok(Math.abs(rings.range5m - speed * 5 * 60) < 1);
+  assert.ok(Math.abs(rings.range30m - speed * 30 * 60) < 1);
+  assert.ok(Math.abs(rings.range30m / rings.range5m - 6) < 0.01);
+});
+
+test("parked jitter does not invent speed or rings", () => {
+  const t0 = 1_700_000_000_000;
+  const lat = 36.1627;
+  const lon = -86.7816;
+  const points = [0, 1, 2, 3, 4].map((i) =>
+    point(northOf(lat, (i % 2) * 4), eastOf(lat, lon, ((i + 1) % 2) * 6), t0 + i * 60_000),
+  );
+  assert.equal(averageTrackSpeedMps(points, t0 + 4 * 60_000), null);
+  const rings = rangeRingRadii(null);
+  assert.equal(rings.range5m, null);
+  assert.equal(rings.range30m, null);
+});
+
+test("implausible teleport hops are not used for speed", () => {
+  const t0 = 1_700_000_000_000;
+  const lat = 36.1627;
+  const lon = -86.7816;
+  const points = [
+    point(lat, lon, t0),
+    point(lat, eastOf(lat, lon, 8_000), t0 + 1_000),
+  ];
+  assert.equal(averageTrackSpeedMps(points, t0 + 1_000), null);
+  assert.equal(averageTrackHeading(points, t0 + 1_000), null);
 });

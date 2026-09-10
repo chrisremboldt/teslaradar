@@ -1,7 +1,11 @@
-/** Defaults match `TRACK_*` in constants.ts so this module stays import-free for Node tests. */
+/** Defaults match `TRACK_*` / `RANGE_*` in constants.ts so this module stays import-free for Node tests. */
 const DEFAULT_WINDOW_MS = 5 * 60 * 1000;
 const DEFAULT_MIN_SEGMENT_M = 20;
 const DEFAULT_MAX_ACCURACY_M = 200;
+const DEFAULT_MIN_SPEED_MPS = 0.75;
+const DEFAULT_MAX_SPEED_MPS = 70;
+const DEFAULT_RING_5_MS = 5 * 60 * 1000;
+const DEFAULT_RING_30_MS = 30 * 60 * 1000;
 
 export type TrackPoint = {
   lat: number;
@@ -74,6 +78,57 @@ function isAccurateEnough(point: TrackPoint, maxAccuracyM: number): boolean {
   return point.accuracy == null || point.accuracy <= maxAccuracyM;
 }
 
+export type TrackSegment = {
+  dist: number;
+  dtMs: number;
+  bearing: number;
+};
+
+export type TrackFilterOptions = {
+  windowMs?: number;
+  minSegmentM?: number;
+  maxAccuracyM?: number;
+  minSpeedMps?: number;
+  maxSpeedMps?: number;
+};
+
+function resolveFilters(options?: TrackFilterOptions) {
+  return {
+    windowMs: options?.windowMs ?? DEFAULT_WINDOW_MS,
+    minSegmentM: options?.minSegmentM ?? DEFAULT_MIN_SEGMENT_M,
+    maxAccuracyM: options?.maxAccuracyM ?? DEFAULT_MAX_ACCURACY_M,
+    minSpeedMps: options?.minSpeedMps ?? DEFAULT_MIN_SPEED_MPS,
+    maxSpeedMps: options?.maxSpeedMps ?? DEFAULT_MAX_SPEED_MPS,
+  };
+}
+
+/** Same junk filters for heading and speed: tiny hops, huge accuracy, teleport speeds. */
+export function goodTrackSegments(
+  points: TrackPoint[],
+  now = Date.now(),
+  options?: TrackFilterOptions,
+): TrackSegment[] {
+  const { windowMs, minSegmentM, maxAccuracyM, maxSpeedMps } = resolveFilters(options);
+  const usable = pruneTrack(points, now, windowMs).filter((point) =>
+    isAccurateEnough(point, maxAccuracyM),
+  );
+
+  const segments: TrackSegment[] = [];
+  for (let i = 1; i < usable.length; i += 1) {
+    const dist = haversineMeters(usable[i - 1], usable[i]);
+    const dtMs = usable[i].timestamp - usable[i - 1].timestamp;
+    if (dist < minSegmentM || dtMs <= 0) continue;
+    const speed = dist / (dtMs / 1000);
+    if (speed > maxSpeedMps) continue;
+    segments.push({
+      dist,
+      dtMs,
+      bearing: initialBearingDegrees(usable[i - 1], usable[i]),
+    });
+  }
+  return segments;
+}
+
 /**
  * Distance-weighted circular mean of segment bearings over the last window.
  * Returns null until two good points span a meaningful move (not parked jitter).
@@ -81,36 +136,65 @@ function isAccurateEnough(point: TrackPoint, maxAccuracyM: number): boolean {
 export function averageTrackHeading(
   points: TrackPoint[],
   now = Date.now(),
-  options?: {
-    windowMs?: number;
-    minSegmentM?: number;
-    maxAccuracyM?: number;
-  },
+  options?: TrackFilterOptions,
 ): number | null {
-  const windowMs = options?.windowMs ?? DEFAULT_WINDOW_MS;
-  const minSegmentM = options?.minSegmentM ?? DEFAULT_MIN_SEGMENT_M;
-  const maxAccuracyM = options?.maxAccuracyM ?? DEFAULT_MAX_ACCURACY_M;
-
-  const usable = pruneTrack(points, now, windowMs).filter((point) =>
-    isAccurateEnough(point, maxAccuracyM),
-  );
+  const { minSegmentM } = resolveFilters(options);
+  const segments = goodTrackSegments(points, now, options);
 
   let sumSin = 0;
   let sumCos = 0;
   let totalDist = 0;
-  let segments = 0;
-
-  for (let i = 1; i < usable.length; i += 1) {
-    const dist = haversineMeters(usable[i - 1], usable[i]);
-    if (dist < minSegmentM) continue;
-    const bearing = initialBearingDegrees(usable[i - 1], usable[i]);
-    const rad = (bearing * Math.PI) / 180;
-    sumSin += Math.sin(rad) * dist;
-    sumCos += Math.cos(rad) * dist;
-    totalDist += dist;
-    segments += 1;
+  for (const segment of segments) {
+    const rad = (segment.bearing * Math.PI) / 180;
+    sumSin += Math.sin(rad) * segment.dist;
+    sumCos += Math.cos(rad) * segment.dist;
+    totalDist += segment.dist;
   }
 
-  if (segments < 1 || totalDist < minSegmentM) return null;
+  if (segments.length < 1 || totalDist < minSegmentM) return null;
   return normalizeHeading((Math.atan2(sumSin, sumCos) * 180) / Math.PI);
+}
+
+/** Average ground speed (m/s) over good segments in the same 5-minute window. */
+export function averageTrackSpeedMps(
+  points: TrackPoint[],
+  now = Date.now(),
+  options?: TrackFilterOptions,
+): number | null {
+  const { minSegmentM, minSpeedMps } = resolveFilters(options);
+  const segments = goodTrackSegments(points, now, options);
+  let totalDist = 0;
+  let totalDtMs = 0;
+  for (const segment of segments) {
+    totalDist += segment.dist;
+    totalDtMs += segment.dtMs;
+  }
+  if (segments.length < 1 || totalDist < minSegmentM || totalDtMs <= 0) return null;
+  const speed = totalDist / (totalDtMs / 1000);
+  if (speed < minSpeedMps) return null;
+  return speed;
+}
+
+export function rangeRingMeters(
+  speedMps: number | null,
+  durationMs: number,
+  minRadiusM = DEFAULT_MIN_SEGMENT_M,
+): number | null {
+  if (speedMps == null || speedMps <= 0 || durationMs <= 0) return null;
+  const radius = speedMps * (durationMs / 1000);
+  if (radius < minRadiusM) return null;
+  return radius;
+}
+
+export function rangeRingRadii(
+  speedMps: number | null,
+  options?: { fiveMs?: number; thirtyMs?: number; minRadiusM?: number },
+): { range5m: number | null; range30m: number | null } {
+  const fiveMs = options?.fiveMs ?? DEFAULT_RING_5_MS;
+  const thirtyMs = options?.thirtyMs ?? DEFAULT_RING_30_MS;
+  const minRadiusM = options?.minRadiusM ?? DEFAULT_MIN_SEGMENT_M;
+  return {
+    range5m: rangeRingMeters(speedMps, fiveMs, minRadiusM),
+    range30m: rangeRingMeters(speedMps, thirtyMs, minRadiusM),
+  };
 }

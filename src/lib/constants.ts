@@ -9,6 +9,12 @@ export const TRACK_WINDOW_MS = 5 * 60 * 1000;
 export const TRACK_MIN_SEGMENT_M = 20;
 /** Drop fixes whose reported accuracy is this poor. */
 export const TRACK_MAX_ACCURACY_M = 200;
+/** Hide range rings below a crawl — parked jitter must not draw giant circles. */
+export const TRACK_MIN_SPEED_MPS = 0.75;
+/** Discard a hop faster than this (m/s); ~250 km/h is not a car GPS sample. */
+export const TRACK_MAX_SPEED_MPS = 70;
+export const RANGE_RING_5_MS = 5 * 60 * 1000;
+export const RANGE_RING_30_MS = 30 * 60 * 1000;
 export const RADAR_REFRESH_MS = 2 * 60 * 1000;
 export const LOCATION_STORAGE_KEY = "teslaradar:last-gps";
 export const PREFS_STORAGE_KEY = "teslaradar:prefs";

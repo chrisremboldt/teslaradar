@@ -9,7 +9,7 @@ import { useGeolocation } from "@/hooks/useGeolocation";
 import { usePreferences } from "@/hooks/usePreferences";
 import { useRainViewer } from "@/hooks/useRainViewer";
 import { useReverseGeocode } from "@/hooks/useReverseGeocode";
-import { useTrackHeading } from "@/hooks/useTrackHeading";
+import { useOwnshipTrack } from "@/hooks/useOwnshipTrack";
 import { LOCATION_POLL_MS, NOMINATIM_ATTRIBUTION } from "@/lib/constants";
 import {
   formatAccuracy,
@@ -71,7 +71,8 @@ export function RadarDashboard() {
   const { prefs, update } = usePreferences();
   const radar = useRainViewer(prefs.animateRadar);
   const compass = useCompass(simulatedHeading);
-  const trackHeading = useTrackHeading(fix);
+  const ownship = useOwnshipTrack(fix);
+  const trackHeading = ownship.heading;
   const place = useReverseGeocode(fix?.lat ?? null, fix?.lon ?? null);
   const [now, setNow] = useState(() => Date.now());
 
@@ -98,6 +99,8 @@ export function RadarDashboard() {
           accuracy={fix.accuracy}
           heading={trackHeading}
           mapHeading={mapHeading}
+          range5m={ownship.range5m}
+          range30m={ownship.range30m}
           followMe={prefs.followMe}
           headingUp={headingUpActive}
           radarHost={radar.catalog?.host ?? null}
@@ -152,6 +155,9 @@ export function RadarDashboard() {
               data-lat={String(fix.lat)}
               data-lon={String(fix.lon)}
               data-track-heading={trackHeading == null ? "" : String(Math.round(trackHeading))}
+              data-speed-mps={ownship.speedMps == null ? "" : ownship.speedMps.toFixed(2)}
+              data-range-5={ownship.range5m == null ? "" : String(Math.round(ownship.range5m))}
+              data-range-30={ownship.range30m == null ? "" : String(Math.round(ownship.range30m))}
             >
               <p className="text-lg font-semibold tracking-tight">{placeLabel}</p>
               <p className="mt-0.5 font-mono text-[11px] tracking-wide text-zinc-500">
@@ -281,6 +287,9 @@ export function RadarDashboard() {
                     {" "}
                     · track {Math.round(trackHeading)}°
                   </span>
+                ) : null}
+                {ownship.range5m != null && ownship.range30m != null ? (
+                  <span className="text-zinc-600"> · 5 / 30 min rings</span>
                 ) : null}
                 {compass.status === "unavailable" || compass.status === "unknown" ? (
                   <span className="text-zinc-600"> · compass unavailable</span>
