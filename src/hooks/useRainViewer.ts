@@ -1,25 +1,38 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
-import { RADAR_REFRESH_MS } from "@/lib/constants";
-import { fetchRainViewerCatalog, radarTileTemplate } from "@/lib/rainviewer";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  RADAR_FRAME_MS,
+  RADAR_HOLD_LAST_MS,
+  RADAR_REFRESH_MS,
+} from "@/lib/constants";
+import { fetchRainViewerCatalog } from "@/lib/rainviewer";
 import type { RadarFrame, RainViewerCatalog } from "@/lib/types";
 
-const FRAME_MS = 420;
-const HOLD_LAST_MS = 900;
-
+/**
+ * Advances past RainViewer frames with requestAnimationFrame + elapsed time.
+ * Tesla Chromium can throttle setTimeout in split-view; rAF plus a visible-tab
+ * watchdog keep the footer index moving. Hidden tabs pause cleanly.
+ */
 export function useRainViewer(animate: boolean) {
   const [catalog, setCatalog] = useState<RainViewerCatalog | null>(null);
   const [frameIndex, setFrameIndex] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const frameIndexRef = useRef(0);
+
+  useEffect(() => {
+    frameIndexRef.current = frameIndex;
+  }, [frameIndex]);
 
   const reload = useCallback(async () => {
     setIsLoading(true);
     try {
       const next = await fetchRainViewerCatalog();
       setCatalog(next);
-      setFrameIndex(next.frames.length ? next.frames.length - 1 : 0);
+      const last = next.frames.length ? next.frames.length - 1 : 0;
+      frameIndexRef.current = last;
+      setFrameIndex(last);
       setError(null);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Radar unavailable");
@@ -43,40 +56,68 @@ export function useRainViewer(animate: boolean) {
 
   useEffect(() => {
     if (!animate || !catalog || catalog.frames.length < 2) return undefined;
-    let cancelled = false;
-    let timer = 0;
 
-    const tick = (index: number) => {
-      if (cancelled) return;
-      const last = catalog.frames.length - 1;
-      const delay = index === last ? HOLD_LAST_MS : FRAME_MS;
-      timer = window.setTimeout(() => {
-        const next = index >= last ? 0 : index + 1;
-        setFrameIndex(next);
-        tick(next);
-      }, delay);
+    const last = catalog.frames.length - 1;
+    let raf = 0;
+    let lastTs = performance.now();
+    let elapsed = 0;
+    let index = frameIndexRef.current;
+    if (index > last) {
+      index = last;
+      frameIndexRef.current = last;
+      setFrameIndex(last);
+    }
+
+    const pump = (ts: number) => {
+      if (document.visibilityState !== "visible") {
+        lastTs = ts;
+        elapsed = 0;
+        return;
+      }
+      const dt = Math.min(Math.max(0, ts - lastTs), 250);
+      lastTs = ts;
+      elapsed += dt;
+      const delay = index === last ? RADAR_HOLD_LAST_MS : RADAR_FRAME_MS;
+      if (elapsed >= delay) {
+        elapsed %= delay;
+        index = index >= last ? 0 : index + 1;
+        frameIndexRef.current = index;
+        setFrameIndex(index);
+      }
     };
 
-    tick(frameIndex);
+    const loop = (ts: number) => {
+      raf = window.requestAnimationFrame(loop);
+      pump(ts);
+    };
+
+    const onVisibility = () => {
+      lastTs = performance.now();
+      elapsed = 0;
+    };
+
+    document.addEventListener("visibilitychange", onVisibility);
+    raf = window.requestAnimationFrame(loop);
+    // Watchdog: if Tesla freezes rAF in split-view, still step while visible.
+    const watchdog = window.setInterval(() => {
+      pump(performance.now());
+    }, 250);
+
     return () => {
-      cancelled = true;
-      window.clearTimeout(timer);
+      window.cancelAnimationFrame(raf);
+      window.clearInterval(watchdog);
+      document.removeEventListener("visibilitychange", onVisibility);
     };
-    // Restart the loop when play/pause or catalog identity changes — not every index tick.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
   }, [animate, catalog]);
 
   const frames: RadarFrame[] = catalog?.frames ?? [];
   const frame = frames[frameIndex] ?? frames.at(-1) ?? null;
-  const tileTemplate =
-    catalog && frame ? radarTileTemplate(catalog.host, frame.path) : null;
 
   return {
     catalog,
     frames,
     frame,
     frameIndex,
-    tileTemplate,
     error,
     isLoading,
     reload,

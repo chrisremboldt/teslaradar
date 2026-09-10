@@ -93,7 +93,9 @@ export function RadarDashboard() {
           heading={compass.heading}
           followMe={prefs.followMe}
           headingUp={headingUpActive}
-          tileTemplate={radar.tileTemplate}
+          radarHost={radar.catalog?.host ?? null}
+          radarFrames={radar.frames}
+          radarFrameIndex={radar.frameIndex}
           onUserPan={() => {
             if (prefs.followMe) update({ followMe: false });
           }}
@@ -248,7 +250,10 @@ export function RadarDashboard() {
           </div>
 
           <div className="flex items-end justify-between gap-3 text-[11px] text-zinc-500">
-            <p data-radar-index={radar.frame ? String(radar.frameIndex) : ""}>
+            <p
+              data-radar-index={radar.frame ? String(radar.frameIndex) : ""}
+              data-radar-path={radar.frame?.path ?? ""}
+            >
               {radar.frame
                 ? `Radar ${formatClock(radar.frame.time)} · ${radar.frameIndex + 1}/${radar.frames.length || 1}`
                 : radar.isLoading

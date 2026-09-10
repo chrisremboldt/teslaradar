@@ -1,19 +1,18 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
 import type { JumpToOptions } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
+import { RadarOverlay } from "@/components/RadarOverlay";
 import {
   MAP_DEFAULT_ZOOM,
   MAP_MAX_ZOOM,
   OSM_ATTRIBUTION,
   OSM_RASTER_TILES,
-  RADAR_CROSSFADE_MS,
-  RADAR_LAYER_OPACITY,
-  RADAR_MAX_NATIVE_ZOOM,
 } from "@/lib/constants";
 import { accuracyCircle, emptyCollection } from "@/lib/geo";
+import type { RadarFrame } from "@/lib/types";
 
 type RadarMapProps = {
   lat: number;
@@ -22,11 +21,11 @@ type RadarMapProps = {
   heading: number | null;
   followMe: boolean;
   headingUp: boolean;
-  tileTemplate: string | null;
+  radarHost: string | null;
+  radarFrames: RadarFrame[];
+  radarFrameIndex: number;
   onUserPan: () => void;
 };
-
-type RadarSlot = "radar-a" | "radar-b";
 
 function applyAccuracy(
   map: MapLibreMap,
@@ -43,77 +42,6 @@ function applyAccuracy(
   }
 }
 
-function removeRadarSlot(map: MapLibreMap, id: RadarSlot) {
-  if (map.getLayer(id)) map.removeLayer(id);
-  if (map.getSource(id)) map.removeSource(id);
-}
-
-function addRadarSlot(map: MapLibreMap, id: RadarSlot, tileTemplate: string, opacity: number) {
-  removeRadarSlot(map, id);
-  map.addSource(id, {
-    type: "raster",
-    tiles: [tileTemplate],
-    tileSize: 256,
-    maxzoom: RADAR_MAX_NATIVE_ZOOM,
-    attribution: '<a href="https://www.rainviewer.com/api.html">RainViewer</a>',
-  });
-  map.addLayer(
-    {
-      id,
-      type: "raster",
-      source: id,
-      paint: {
-        "raster-opacity": opacity,
-        "raster-fade-duration": 0,
-        "raster-opacity-transition": { duration: RADAR_CROSSFADE_MS, delay: 0 },
-      },
-    },
-    map.getLayer("accuracy-fill") ? "accuracy-fill" : undefined,
-  );
-}
-
-type FadeTimers = { kick: number; cleanup: number };
-
-function clearFadeTimers(timers: FadeTimers) {
-  window.clearTimeout(timers.kick);
-  window.clearTimeout(timers.cleanup);
-}
-
-/**
- * Tesla's Chromium / MapLibre often keeps cached raster tiles after
- * `RasterTileSource.setTiles()`. Force a reload by removing and re-adding the
- * incoming source, then crossfading two radar layers.
- */
-function showRadarFrame(
-  map: MapLibreMap,
-  tileTemplate: string,
-  activeSlot: RadarSlot | null,
-): { next: RadarSlot; timers: FadeTimers } {
-  const next: RadarSlot = activeSlot === "radar-a" ? "radar-b" : "radar-a";
-  const outgoing = activeSlot;
-  const first = outgoing == null || !map.getLayer(outgoing);
-  addRadarSlot(map, next, tileTemplate, first ? RADAR_LAYER_OPACITY : 0);
-
-  if (first || !outgoing) {
-    return { next, timers: { kick: 0, cleanup: 0 } };
-  }
-
-  const kick = window.setTimeout(() => {
-    if (!map.getStyle()) return;
-    map.setPaintProperty(next, "raster-opacity", RADAR_LAYER_OPACITY);
-    if (map.getLayer(outgoing)) {
-      map.setPaintProperty(outgoing, "raster-opacity", 0);
-    }
-  }, 32);
-
-  const cleanup = window.setTimeout(() => {
-    if (!map.getStyle()) return;
-    removeRadarSlot(map, outgoing);
-  }, RADAR_CROSSFADE_MS + 80);
-
-  return { next, timers: { kick, cleanup } };
-}
-
 export function RadarMap({
   lat,
   lon,
@@ -121,16 +49,16 @@ export function RadarMap({
   heading,
   followMe,
   headingUp,
-  tileTemplate,
+  radarHost,
+  radarFrames,
+  radarFrameIndex,
   onUserPan,
 }: RadarMapProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<MapLibreMap | null>(null);
   const markerRef = useRef<Marker | null>(null);
   const onUserPanRef = useRef(onUserPan);
-  const lastTileRef = useRef<string | null>(null);
-  const activeSlotRef = useRef<RadarSlot | null>(null);
-  const fadeTimersRef = useRef<FadeTimers>({ kick: 0, cleanup: 0 });
+  const [map, setMap] = useState<MapLibreMap | null>(null);
 
   useEffect(() => {
     onUserPanRef.current = onUserPan;
@@ -139,7 +67,7 @@ export function RadarMap({
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
-    const map = new MapLibreMap({
+    const mapInstance = new MapLibreMap({
       container: containerRef.current,
       style: {
         version: 8,
@@ -182,14 +110,14 @@ export function RadarMap({
     markerEl.innerHTML = `<span class="tesla-location-marker-pulse"></span><span class="tesla-location-marker-chevron"></span>`;
     const marker = new Marker({ element: markerEl, anchor: "center" })
       .setLngLat([lon, lat])
-      .addTo(map);
+      .addTo(mapInstance);
 
-    map.on("load", () => {
-      map.addSource("accuracy", {
+    mapInstance.on("load", () => {
+      mapInstance.addSource("accuracy", {
         type: "geojson",
         data: emptyCollection(),
       });
-      map.addLayer({
+      mapInstance.addLayer({
         id: "accuracy-fill",
         type: "fill",
         source: "accuracy",
@@ -198,7 +126,7 @@ export function RadarMap({
           "fill-opacity": 0.15,
         },
       });
-      map.addLayer({
+      mapInstance.addLayer({
         id: "accuracy-line",
         type: "line",
         source: "accuracy",
@@ -208,33 +136,32 @@ export function RadarMap({
           "line-width": 1,
         },
       });
-      applyAccuracy(map, lon, lat, accuracy);
+      applyAccuracy(mapInstance, lon, lat, accuracy);
+      setMap(mapInstance);
     });
 
-    map.on("dragstart", () => {
+    mapInstance.on("dragstart", () => {
       onUserPanRef.current();
     });
 
-    mapRef.current = map;
+    mapRef.current = mapInstance;
     markerRef.current = marker;
 
     return () => {
-      clearFadeTimers(fadeTimersRef.current);
+      setMap(null);
       marker.remove();
-      map.remove();
+      mapInstance.remove();
       mapRef.current = null;
       markerRef.current = null;
-      activeSlotRef.current = null;
-      lastTileRef.current = null;
     };
     // Map is created once for the session; camera updates happen in the effect below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    const map = mapRef.current;
+    const current = mapRef.current;
     const marker = markerRef.current;
-    if (!map || !marker) return;
+    if (!current || !marker) return;
 
     marker.setLngLat([lon, lat]);
     const markerHeading = headingUp ? 0 : (heading ?? 0);
@@ -242,40 +169,36 @@ export function RadarMap({
     marker.getElement().classList.toggle("has-heading", heading != null);
 
     const apply = () => {
-      applyAccuracy(map, lon, lat, accuracy);
+      applyAccuracy(current, lon, lat, accuracy);
       const nextBearing = headingUp && heading != null ? heading : 0;
       const camera: JumpToOptions = { bearing: nextBearing };
       if (followMe) {
         camera.center = [lon, lat];
       }
-      map.jumpTo(camera);
+      current.jumpTo(camera);
     };
 
-    if (map.isStyleLoaded()) apply();
-    else map.once("load", apply);
+    if (current.isStyleLoaded()) apply();
+    else current.once("load", apply);
   }, [accuracy, followMe, heading, headingUp, lat, lon]);
 
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map || !tileTemplate || tileTemplate === lastTileRef.current) return;
-
-    const applyTiles = () => {
-      clearFadeTimers(fadeTimersRef.current);
-      const { next, timers } = showRadarFrame(map, tileTemplate, activeSlotRef.current);
-      activeSlotRef.current = next;
-      fadeTimersRef.current = timers;
-      lastTileRef.current = tileTemplate;
-    };
-
-    if (map.isStyleLoaded()) applyTiles();
-    else map.once("load", applyTiles);
-  }, [tileTemplate]);
+  const frame = radarFrames[radarFrameIndex] ?? radarFrames.at(-1) ?? null;
 
   return (
     <div
-      ref={containerRef}
-      className="radar-map h-full w-full"
-      data-radar-tiles={tileTemplate ?? ""}
-    />
+      className="relative h-full w-full"
+      data-radar-index={frame ? String(radarFrameIndex) : ""}
+      data-radar-path={frame?.path ?? ""}
+    >
+      <div ref={containerRef} className="radar-map h-full w-full" />
+      {map ? (
+        <RadarOverlay
+          map={map}
+          host={radarHost}
+          frames={radarFrames}
+          frameIndex={radarFrameIndex}
+        />
+      ) : null}
+    </div>
   );
 }
