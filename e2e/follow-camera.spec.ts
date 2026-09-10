@@ -93,6 +93,12 @@ async function openRadar(page: Page, followMe: boolean, first?: MockFix) {
     timeout: 10_000,
   });
   await page.waitForTimeout(400);
+  await expect(page.locator(".radar-overlay-canvas")).toBeAttached();
+  await expect
+    .poll(async () => page.locator(".radar-overlay-canvas").getAttribute("data-radar-src"), {
+      timeout: 25_000,
+    })
+    .toMatch(/rainviewer\.com|rvdl\.|\/256\/|\/512\//);
 }
 
 async function pushGeo(page: Page, next: MockFix) {
@@ -146,6 +152,10 @@ test.describe("follow camera", () => {
       return Math.hypot(offset.dx, offset.dy);
     }).toBeLessThan(MARKER_CENTER_PX);
     await expect(page.locator("[data-follow-me]")).toHaveAttribute("data-follow-me", "on");
+    await expect(page.locator(".radar-overlay-canvas")).toHaveAttribute(
+      "data-radar-src",
+      /rainviewer\.com|rvdl\.|\/256\/|\/512\//,
+    );
 
     await page.waitForTimeout(450);
     await page.screenshot({

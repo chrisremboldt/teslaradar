@@ -54,6 +54,10 @@ body {
   color: #e0f2fe;
 }
 
+.radar-map {
+  position: relative;
+}
+
 .radar-map .maplibregl-ctrl-attrib {
   background: rgba(0, 0, 0, 0.55);
   color: #a1a1aa;

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { FOLLOW_JUMP_METERS, USER_PAN_MIN_PX } from "./constants.ts";
 import {
+  isCameraOnTarget,
   planFollowCamera,
   shouldTreatAsUserPan,
 } from "./follow-camera.ts";
@@ -108,6 +109,34 @@ test("re-enabling Following after a pan recenters on ownship", () => {
   assert.ok(plan.center);
   assert.deepEqual(plan.center, [NASHVILLE.lon, NASHVILLE.lat]);
   assert.ok(plan.mode === "ease" || plan.mode === "jump");
+});
+
+test("isCameraOnTarget skips a no-op follow jump", () => {
+  const plan = planFollowCamera({
+    followMe: true,
+    ownship: NASHVILLE,
+    mapCenter: NASHVILLE,
+    bearing: 0,
+    firstLock: true,
+    positionChanged: false,
+    followJustEnabled: false,
+  });
+  assert.equal(
+    isCameraOnTarget({
+      mapCenter: NASHVILLE,
+      mapBearing: 0,
+      plan,
+    }),
+    true,
+  );
+  assert.equal(
+    isCameraOnTarget({
+      mapCenter: { lat: northOf(NASHVILLE.lat, 80), lon: NASHVILLE.lon },
+      mapBearing: 0,
+      plan,
+    }),
+    false,
+  );
 });
 
 test("programmatic camera moves and Tesla jitter do not count as a user pan", () => {
