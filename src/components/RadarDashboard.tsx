@@ -8,7 +8,8 @@ import { useCompass } from "@/hooks/useCompass";
 import { useGeolocation } from "@/hooks/useGeolocation";
 import { usePreferences } from "@/hooks/usePreferences";
 import { useRainViewer } from "@/hooks/useRainViewer";
-import { LOCATION_POLL_MS } from "@/lib/constants";
+import { useReverseGeocode } from "@/hooks/useReverseGeocode";
+import { LOCATION_POLL_MS, NOMINATIM_ATTRIBUTION } from "@/lib/constants";
 import {
   formatAccuracy,
   formatClock,
@@ -69,6 +70,7 @@ export function RadarDashboard() {
   const { prefs, update } = usePreferences();
   const radar = useRainViewer(prefs.animateRadar);
   const compass = useCompass(simulatedHeading);
+  const place = useReverseGeocode(fix?.lat ?? null, fix?.lon ?? null);
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -79,6 +81,7 @@ export function RadarDashboard() {
   const headingUpActive = prefs.headingUp && compass.heading != null;
   const showError =
     Boolean(error) && (fix?.source === "demo" || fix?.source === "cached" || !fix);
+  const placeLabel = place ?? (fix ? formatLatLon(fix.lat, fix.lon) : null);
 
   return (
     <div className="relative h-dvh w-full overflow-hidden bg-[#0b0d10] text-zinc-100">
@@ -133,8 +136,13 @@ export function RadarDashboard() {
           </div>
 
           {fix ? (
-            <div className="rounded-2xl border border-white/10 bg-black/55 px-3 py-2.5 backdrop-blur-md">
-              <p className="font-mono text-sm tracking-wide">
+            <div
+              className="rounded-2xl border border-white/10 bg-black/55 px-3 py-2.5 backdrop-blur-md"
+              data-place={placeLabel ?? ""}
+              data-relative={formatRelative(fix.timestamp, now)}
+            >
+              <p className="text-lg font-semibold tracking-tight">{placeLabel}</p>
+              <p className="mt-0.5 font-mono text-[11px] tracking-wide text-zinc-500">
                 {formatLatLon(fix.lat, fix.lon)}
               </p>
               <p className="mt-1 text-xs text-zinc-400">
@@ -179,9 +187,12 @@ export function RadarDashboard() {
         </header>
       </div>
 
-      <div className="pointer-events-none absolute right-3 top-[min(42vh,22rem)] z-10">
-        <CompassBadge heading={compass.heading} status={compass.status} />
-      </div>
+      {compass.heading != null &&
+      (compass.status === "available" || compass.status === "simulated") ? (
+        <div className="pointer-events-none absolute right-3 top-[min(42vh,22rem)] z-10">
+          <CompassBadge heading={compass.heading} status={compass.status} />
+        </div>
+      ) : null}
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 bg-gradient-to-t from-black/85 via-black/40 to-transparent pb-[max(0.85rem,env(safe-area-inset-bottom))] pt-10">
         <div className="pointer-events-auto mx-auto flex w-full max-w-xl flex-col gap-3 px-3">
@@ -236,8 +247,8 @@ export function RadarDashboard() {
             ) : null}
           </div>
 
-          <div className="flex items-end justify-between gap-3 text-[11px] text-zinc-400">
-            <p>
+          <div className="flex items-end justify-between gap-3 text-[11px] text-zinc-500">
+            <p data-radar-index={radar.frame ? String(radar.frameIndex) : ""}>
               {radar.frame
                 ? `Radar ${formatClock(radar.frame.time)} · ${radar.frameIndex + 1}/${radar.frames.length || 1}`
                 : radar.isLoading
@@ -245,8 +256,11 @@ export function RadarDashboard() {
                   : (radar.error ?? "No radar frames")}
               {" · "}
               Location poll {LOCATION_POLL_MS / 60000} min
+              {compass.status === "unavailable" || compass.status === "unknown" ? (
+                <span className="text-zinc-600"> · compass unavailable</span>
+              ) : null}
             </p>
-            <p className="text-right">
+            <p className="max-w-[14rem] text-right leading-relaxed">
               Radar by{" "}
               <a
                 className="underline decoration-white/20 underline-offset-2"
@@ -256,6 +270,8 @@ export function RadarDashboard() {
               >
                 RainViewer
               </a>
+              {" · "}
+              {NOMINATIM_ATTRIBUTION}
             </p>
           </div>
         </div>

@@ -12,6 +12,7 @@ import {
   saveCachedGps,
   subscribeCachedGps,
 } from "@/lib/storage";
+import { normalizeEpochMs } from "@/lib/time";
 import type { GeoFix, LocationErrorKind } from "@/lib/types";
 
 // Future (not v1): Tesla Fleet API vehicle location could replace or
@@ -57,7 +58,7 @@ export function useGeolocation() {
       lon: position.coords.longitude,
       accuracy:
         typeof position.coords.accuracy === "number" ? position.coords.accuracy : null,
-      timestamp: position.timestamp || Date.now(),
+      timestamp: normalizeEpochMs(position.timestamp || Date.now()),
       source: "gps",
     };
     saveCachedGps(next);

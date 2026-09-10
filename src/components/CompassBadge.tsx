@@ -9,24 +9,18 @@ type CompassBadgeProps = {
 };
 
 export function CompassBadge({ heading, status }: CompassBadgeProps) {
-  const rotation = heading ?? 0;
-  const muted = status === "unavailable" || status === "needs-permission" || status === "unknown";
+  if (status !== "available" && status !== "simulated") return null;
+  if (heading == null) return null;
 
   return (
-    <div
-      className={`pointer-events-none flex items-center gap-3 rounded-2xl border px-3 py-2 backdrop-blur-md ${
-        muted
-          ? "border-white/10 bg-black/45 text-zinc-500"
-          : "border-white/15 bg-black/55 text-zinc-100"
-      }`}
-    >
+    <div className="pointer-events-none flex items-center gap-3 rounded-2xl border border-white/15 bg-black/55 px-3 py-2 text-zinc-100 backdrop-blur-md">
       <div
         className="relative grid h-12 w-12 place-items-center rounded-full border border-white/15 bg-zinc-950/80"
         aria-hidden
       >
         <div
           className="absolute inset-1 transition-transform duration-150 ease-out"
-          style={{ transform: `rotate(${rotation}deg)` }}
+          style={{ transform: `rotate(${heading}deg)` }}
         >
           <span className="absolute left-1/2 top-0.5 -translate-x-1/2 text-[10px] font-bold text-red-500">
             N
@@ -38,23 +32,10 @@ export function CompassBadge({ heading, status }: CompassBadgeProps) {
         <span className="h-2 w-2 rounded-full bg-sky-400 shadow-[0_0_10px_#38bdf8]" />
       </div>
       <div className="min-w-[7.5rem] leading-tight">
-        {status === "available" || status === "simulated" ? (
-          <>
-            <p className="text-sm font-semibold tabular-nums">
-              {heading != null ? formatHeading(heading) : "—"}
-            </p>
-            <p className="text-[11px] uppercase tracking-wide text-zinc-400">
-              {status === "simulated" ? "Simulated heading" : "Device heading"}
-            </p>
-          </>
-        ) : (
-          <>
-            <p className="text-sm font-medium text-zinc-400">Compass unavailable</p>
-            <p className="text-[11px] text-zinc-500">
-              {status === "needs-permission" ? "Needs motion permission" : "Map stays north-up"}
-            </p>
-          </>
-        )}
+        <p className="text-sm font-semibold tabular-nums">{formatHeading(heading)}</p>
+        <p className="text-[11px] uppercase tracking-wide text-zinc-400">
+          {status === "simulated" ? "Simulated heading" : "Device heading"}
+        </p>
       </div>
     </div>
   );
