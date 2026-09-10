@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { TESLA_LOCATION_POLL_MS } from "./constants.ts";
+import { GEO_TESLA_MAXIMUM_AGE_MS, TESLA_LOCATION_POLL_MS } from "./constants.ts";
 import {
   applyTeslaDocumentClass,
   isTeslaBrowser,
@@ -58,7 +58,9 @@ test("Tesla profile is poll-only, jump-only, and 1× pixels", () => {
   assert.equal(mapMaxTileCacheSize(true), 24);
   assert.equal(mapMaxTileCacheSize(false), undefined);
   assert.deepEqual(mapMaxCanvasSize(true), [2048, 2048]);
-  assert.equal(TESLA_LOCATION_POLL_MS, 15_000);
+  assert.equal(TESLA_LOCATION_POLL_MS, 4_000);
+  assert.equal(GEO_TESLA_MAXIMUM_AGE_MS, 3_000);
+  assert.ok(GEO_TESLA_MAXIMUM_AGE_MS < TESLA_LOCATION_POLL_MS);
 });
 
 test("applyTeslaDocumentClass toggles html.tesla-browser", () => {

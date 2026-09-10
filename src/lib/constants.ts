@@ -1,9 +1,14 @@
 /** GPS poll cadence. Visibility-resume and Refresh now still request immediately. */
 export const LOCATION_POLL_MS = 60_000;
-/** Tesla has no watchPosition — poll a bit faster so Following still tracks. */
-export const TESLA_LOCATION_POLL_MS = 15_000;
+/**
+ * Tesla has no watchPosition. 4s getCurrentPosition keeps track heading and
+ * range rings alive; polls may await a ≤3s cached reading instead of a new lock.
+ */
+export const TESLA_LOCATION_POLL_MS = 4_000;
 /** Always request a fresh fix so a 1-minute poll is not served a stale 30s+ reading. */
 export const GEO_MAXIMUM_AGE_MS = 0;
+/** Tesla polls accept a recent reading so we do not re-lock GPS every 4s. */
+export const GEO_TESLA_MAXIMUM_AGE_MS = 3_000;
 /** watchPosition may reuse a ~1s reading so follow camera can tick without a new GPS lock every time. */
 export const GEO_WATCH_MAXIMUM_AGE_MS = 1_000;
 export const GEO_TIMEOUT_MS = 15_000;

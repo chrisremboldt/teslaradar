@@ -60,6 +60,8 @@ async function installPollGeo(page: Page, first: MockFix) {
     (window as unknown as { __watchCalls: () => number }).__watchCalls = () => watchCalls;
 
     navigator.geolocation.getCurrentPosition = (success) => {
+      (window as unknown as { __getCalls?: number }).__getCalls =
+        ((window as unknown as { __getCalls?: number }).__getCalls ?? 0) + 1;
       success(toPosition(current));
     };
     navigator.geolocation.watchPosition = () => {
@@ -97,7 +99,7 @@ test.describe("Tesla browser survival", () => {
     });
     await expect(page.locator("[data-geo-watch=off]")).toBeVisible();
     await expect.poll(() => page.locator("html").getAttribute("class")).toMatch(/tesla-browser/);
-    await expect(page.getByText(/Location poll 15 s/)).toBeVisible();
+    await expect(page.getByText(/Location poll 4 s/)).toBeVisible();
 
     await expect(page.locator("[data-map-root][data-map-center-lat]")).toBeVisible({
       timeout: 25_000,
@@ -142,10 +144,13 @@ test.describe("Tesla browser survival", () => {
       timestamp: Date.now(),
       accuracy: 10,
     });
-    await page.getByRole("button", { name: /Refresh now|Refreshing/ }).click();
     await expect(page.locator("[data-place]")).toHaveAttribute("data-lat", String(nextLat), {
-      timeout: 15_000,
+      timeout: 10_000,
     });
+    const getCalls = await page.evaluate(
+      () => (window as unknown as { __getCalls?: number }).__getCalls ?? 0,
+    );
+    expect(getCalls).toBeGreaterThanOrEqual(2);
 
     await expect.poll(async () => {
       const center = await page.evaluate(() => {
