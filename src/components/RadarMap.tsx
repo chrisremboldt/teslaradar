@@ -10,9 +10,10 @@ import {
 import type { JumpToOptions } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import {
-  BASEMAP_STYLE,
   MAP_DEFAULT_ZOOM,
   MAP_MAX_ZOOM,
+  OSM_ATTRIBUTION,
+  OSM_RASTER_TILES,
   RADAR_MAX_NATIVE_ZOOM,
 } from "@/lib/constants";
 import { accuracyCircle, emptyCollection } from "@/lib/geo";
@@ -68,7 +69,30 @@ export function RadarMap({
 
     const map = new MapLibreMap({
       container: containerRef.current,
-      style: BASEMAP_STYLE,
+      style: {
+        version: 8,
+        sources: {
+          osm: {
+            type: "raster",
+            tiles: OSM_RASTER_TILES,
+            tileSize: 256,
+            attribution: OSM_ATTRIBUTION,
+          },
+        },
+        layers: [
+          {
+            id: "osm",
+            type: "raster",
+            source: "osm",
+            paint: {
+              "raster-saturation": -0.85,
+              "raster-contrast": -0.15,
+              "raster-brightness-min": 0,
+              "raster-brightness-max": 0.38,
+            },
+          },
+        ],
+      },
       center: [lon, lat],
       zoom: MAP_DEFAULT_ZOOM,
       maxZoom: MAP_MAX_ZOOM,

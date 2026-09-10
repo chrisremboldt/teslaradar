@@ -32,5 +32,9 @@ export type DemoLocationId = keyof typeof DEMO_LOCATIONS;
 
 export const DEFAULT_DEMO = DEMO_LOCATIONS.nashville;
 
-/** Free OSM dark style — no Mapbox or Carto token. */
-export const BASEMAP_STYLE = "https://tiles.openfreemap.org/styles/dark";
+/** OSM raster tiles (openstreetmap.de). Darkened in MapLibre paint. No token. */
+export const OSM_RASTER_TILES = [
+  "https://tile.openstreetmap.de/{z}/{x}/{y}.png",
+];
+export const OSM_ATTRIBUTION =
+  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
