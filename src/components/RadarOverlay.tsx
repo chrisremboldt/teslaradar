@@ -5,11 +5,17 @@ import type { Map as MapLibreMap } from "maplibre-gl";
 import { RADAR_LAYER_OPACITY } from "@/lib/constants";
 import {
   radarAnchorKey,
+  radarFramesToPreload,
   radarImageAnchor,
   radarImageUrl,
   radarOverlayPlacement,
   type RadarImageAnchor,
 } from "@/lib/rainviewer";
+import {
+  isTeslaBrowser,
+  overlayPixelRatioForBrowser,
+  radarPreloadRadius,
+} from "@/lib/tesla-browser";
 import type { RadarFrame } from "@/lib/types";
 
 type RadarOverlayProps = {
@@ -60,6 +66,10 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
     const images = imagesRef.current;
     let loadGen = 0;
     let raf = 0;
+    const tesla = isTeslaBrowser();
+    const pixelRatio = overlayPixelRatioForBrowser(tesla, window.devicePixelRatio || 1);
+    const ctx = canvas.getContext("2d");
+    canvas.dataset.pixelRatio = String(pixelRatio);
 
     const activeFrame = () =>
       framesRef.current[frameIndexRef.current] ?? framesRef.current.at(-1) ?? null;
@@ -69,23 +79,30 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
       return activeHost ? radarImageUrl(activeHost, frame.path, anchor) : "";
     };
 
+    const wantedUrls = (anchor: RadarImageAnchor, host: string) => {
+      const subset = radarFramesToPreload(
+        framesRef.current,
+        frameIndexRef.current,
+        radarPreloadRadius(tesla),
+      );
+      return new Set(subset.map((frame) => radarImageUrl(host, frame.path, anchor)));
+    };
+
     const draw = () => {
-      const ctx = canvas.getContext("2d");
       const anchor = anchorRef.current;
       const frame = activeFrame();
       if (!ctx) return;
 
-      const dpr = window.devicePixelRatio || 1;
       const width = canvas.clientWidth || map.getContainer().clientWidth;
       const height = canvas.clientHeight || map.getContainer().clientHeight;
-      const pixelW = Math.max(1, Math.round(width * dpr));
-      const pixelH = Math.max(1, Math.round(height * dpr));
+      const pixelW = Math.max(1, Math.round(width * pixelRatio));
+      const pixelH = Math.max(1, Math.round(height * pixelRatio));
       if (canvas.width !== pixelW || canvas.height !== pixelH) {
         canvas.width = pixelW;
         canvas.height = pixelH;
       }
 
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
       ctx.clearRect(0, 0, width, height);
 
       const url = frame && anchor ? frameUrl(frame, anchor) : "";
@@ -137,9 +154,7 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
         return;
       }
       const gen = ++loadGen;
-      const wanted = new Set(
-        framesRef.current.map((frame) => radarImageUrl(activeHost, frame.path, next)),
-      );
+      const wanted = wantedUrls(next, activeHost);
       for (const key of images.keys()) {
         if (!wanted.has(key)) images.delete(key);
       }
@@ -186,14 +201,18 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
     map.on("zoomend", onIdle);
     applyAnchor(true);
 
-    const observer = new ResizeObserver(() => applyAnchor(false));
-    observer.observe(map.getContainer());
+    // ResizeObserver on Tesla's 1920×1200 layout can storm applyAnchor.
+    let observer: ResizeObserver | null = null;
+    if (!tesla && typeof ResizeObserver === "function") {
+      observer = new ResizeObserver(() => applyAnchor(false));
+      observer.observe(map.getContainer());
+    }
 
     return () => {
       loadGen += 1;
       drawRef.current = () => undefined;
       if (raf) window.cancelAnimationFrame(raf);
-      observer.disconnect();
+      observer?.disconnect();
       map.off("move", onMove);
       map.off("resize", onIdle);
       map.off("moveend", onIdle);
@@ -224,7 +243,12 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
       return;
     }
     const images = imagesRef.current;
-    const wanted = new Set(frames.map((frame) => radarImageUrl(host, frame.path, anchor)));
+    const tesla = isTeslaBrowser();
+    const wanted = new Set(
+      radarFramesToPreload(frames, frameIndex, radarPreloadRadius(tesla)).map((frame) =>
+        radarImageUrl(host, frame.path, anchor),
+      ),
+    );
     for (const key of images.keys()) {
       if (!wanted.has(key)) images.delete(key);
     }
@@ -238,7 +262,7 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
         .catch(() => undefined);
     }
     drawRef.current();
-  }, [frames, host, map]);
+  }, [frameIndex, frames, host, map]);
 
   useEffect(() => {
     drawRef.current();

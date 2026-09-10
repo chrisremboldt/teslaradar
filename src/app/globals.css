@@ -43,6 +43,17 @@ body {
   opacity: 0.45;
 }
 
+/* Tesla Chromium: backdrop-filter on a 1920×1200 HUD has crashed the GPU. */
+html.tesla-browser .hud-btn,
+html.tesla-browser .backdrop-blur-md,
+html.tesla-browser .backdrop-blur {
+  backdrop-filter: none;
+}
+
+html.tesla-browser {
+  --hud-bg: rgba(9, 11, 14, 0.88);
+}
+
 .hud-btn-primary {
   border-color: rgba(239, 68, 68, 0.45);
   background: rgba(127, 29, 29, 0.55);

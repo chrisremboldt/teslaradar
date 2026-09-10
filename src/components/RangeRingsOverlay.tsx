@@ -44,6 +44,7 @@ export function RangeRingsOverlay({
   const [frame, setFrame] = useState<RingFrame | null>(null);
 
   useEffect(() => {
+    let raf = 0;
     const update = () => {
       if (!range5m && !range30m) {
         setFrame(null);
@@ -57,18 +58,26 @@ export function RangeRingsOverlay({
         r30: range30m ? projectedRadius(map, lon, lat, range30m) : 0,
       });
     };
-    update();
-    map.on("move", update);
-    map.on("rotate", update);
-    map.on("zoom", update);
-    map.on("pitch", update);
-    map.on("resize", update);
+    const schedule = () => {
+      if (raf) return;
+      raf = window.requestAnimationFrame(() => {
+        raf = 0;
+        update();
+      });
+    };
+    schedule();
+    map.on("move", schedule);
+    map.on("rotate", schedule);
+    map.on("zoom", schedule);
+    map.on("pitch", schedule);
+    map.on("resize", schedule);
     return () => {
-      map.off("move", update);
-      map.off("rotate", update);
-      map.off("zoom", update);
-      map.off("pitch", update);
-      map.off("resize", update);
+      if (raf) window.cancelAnimationFrame(raf);
+      map.off("move", schedule);
+      map.off("rotate", schedule);
+      map.off("zoom", schedule);
+      map.off("pitch", schedule);
+      map.off("resize", schedule);
     };
   }, [lat, lon, map, range30m, range5m]);
 
