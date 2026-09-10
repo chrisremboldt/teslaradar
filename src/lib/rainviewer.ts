@@ -8,6 +8,8 @@ import {
 } from "@/lib/constants";
 import type { RadarFrame, RainViewerCatalog } from "@/lib/types";
 
+export { radarAnchorStillCovers } from "@/lib/radar-anchor";
+
 type RainViewerApiResponse = {
   version?: string;
   generated?: number;

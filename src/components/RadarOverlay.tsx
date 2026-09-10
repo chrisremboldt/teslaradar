@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import type { Map as MapLibreMap } from "maplibre-gl";
 import { RADAR_LAYER_OPACITY } from "@/lib/constants";
 import {
-  radarAnchorKey,
+  radarAnchorStillCovers,
   radarFramesToPreload,
   radarImageAnchor,
   radarImageUrl,
@@ -60,7 +60,12 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
     // Sit on the map container, not MapLibre's transforming canvas-container.
     // easeTo/jumpTo apply a CSS transform there; a child canvas then gets
     // double-offset by map.project() and the radar paints off-screen.
-    map.getContainer().appendChild(canvas);
+    // Sit on the map root (sibling of `.radar-map`), not inside MapLibre’s
+    // canvas-container (CSS-transform double-offset) and not as a sibling of
+    // the WebGL canvas (Tesla/Chromium composites GL on top of 2D).
+    const mount = map.getContainer().parentElement ?? map.getContainer();
+    mount.appendChild(canvas);
+    canvas.dataset.radarMount = mount === map.getContainer() ? "map" : "root";
     canvasRef.current = canvas;
 
     const images = imagesRef.current;
@@ -112,6 +117,7 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
       canvas.dataset.radarZoom = anchor ? String(anchor.zoom) : "";
 
       const image = url ? images.get(url) : undefined;
+      canvas.dataset.radarPainted = image && anchor ? "1" : "0";
       if (!image || !anchor) return;
 
       const placed = radarOverlayPlacement(
@@ -155,10 +161,19 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
       }
       const gen = ++loadGen;
       const wanted = wantedUrls(next, activeHost);
+      const current = (() => {
+        const frame = activeFrame();
+        return frame ? radarImageUrl(activeHost, frame.path, next) : "";
+      })();
       for (const key of images.keys()) {
         if (!wanted.has(key)) images.delete(key);
       }
-      for (const url of wanted) {
+      const ordered = [...wanted].sort((a, b) => {
+        if (a === current) return -1;
+        if (b === current) return 1;
+        return 0;
+      });
+      for (const url of ordered) {
         if (images.has(url)) continue;
         void loadImage(url)
           .then((image) => {
@@ -180,11 +195,8 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
         return;
       }
       const prev = anchorRef.current;
-      const unchanged =
-        !force &&
-        prev &&
-        radarAnchorKey(activeHost, prev) === radarAnchorKey(activeHost, next);
-      if (!unchanged) {
+      const keepImage = !force && prev && radarAnchorStillCovers(prev, next);
+      if (!keepImage) {
         anchorRef.current = next;
         preload(next);
         return;
@@ -201,9 +213,8 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
     map.on("zoomend", onIdle);
     applyAnchor(true);
 
-    // ResizeObserver on Tesla's 1920×1200 layout can storm applyAnchor.
     let observer: ResizeObserver | null = null;
-    if (!tesla && typeof ResizeObserver === "function") {
+    if (typeof ResizeObserver === "function") {
       observer = new ResizeObserver(() => applyAnchor(false));
       observer.observe(map.getContainer());
     }
@@ -224,19 +235,17 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
   }, [map]);
 
   useEffect(() => {
-    const anchor =
-      anchorRef.current ??
-      (() => {
-        const container = map.getContainer();
-        const center = map.getCenter();
-        return radarImageAnchor(
-          center.lat,
-          center.lng,
-          map.getZoom(),
-          container.clientWidth,
-          container.clientHeight,
-        );
-      })();
+    const container = map.getContainer();
+    const center = map.getCenter();
+    const computed = radarImageAnchor(
+      center.lat,
+      center.lng,
+      map.getZoom(),
+      container.clientWidth,
+      container.clientHeight,
+    );
+    const prev = anchorRef.current;
+    const anchor = prev && radarAnchorStillCovers(prev, computed) ? prev : computed;
     anchorRef.current = anchor;
     if (!host || frames.length === 0) {
       drawRef.current();

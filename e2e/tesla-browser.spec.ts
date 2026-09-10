@@ -112,6 +112,12 @@ test.describe("Tesla browser survival", () => {
 
     await expect(page.locator(".radar-overlay-canvas")).toBeAttached();
     await expect(page.locator(".radar-overlay-canvas")).toHaveAttribute("data-pixel-ratio", "1");
+    await expect(page.locator(".radar-overlay-canvas")).toHaveAttribute("data-radar-mount", "root");
+    await expect(page.locator(".radar-overlay-canvas")).toHaveAttribute(
+      "data-radar-painted",
+      "1",
+      { timeout: 25_000 },
+    );
     const canvasMetrics = await page.evaluate(() => {
       const overlay = document.querySelector(".radar-overlay-canvas") as HTMLCanvasElement | null;
       const gl = document.querySelector(".radar-map .maplibregl-canvas") as HTMLCanvasElement | null;
