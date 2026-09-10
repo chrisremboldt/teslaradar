@@ -24,7 +24,11 @@ async function openRadar(page: Page, context: BrowserContext) {
     );
   });
   await page.goto("/");
-  await expect(page.locator("[data-track-heading]")).toBeVisible({ timeout: 25_000 });
+  await expect(page.locator("[data-place][data-track-heading]")).toBeVisible({
+    timeout: 25_000,
+  });
+  await expect(page.locator(".tesla-location-marker")).toBeVisible();
+  await page.waitForTimeout(1500);
 }
 
 async function refreshAt(
@@ -34,16 +38,20 @@ async function refreshAt(
   longitude: number,
 ) {
   await context.setGeolocation({ latitude, longitude, accuracy: 10 });
+  const before = await page.locator("[data-place]").getAttribute("data-lon");
   await page.getByRole("button", { name: /Refresh now|Refreshing/ }).click();
   await expect(page.getByRole("button", { name: "Refresh now" })).toBeEnabled({
     timeout: 20_000,
+  });
+  await expect(page.locator("[data-place]")).not.toHaveAttribute("data-lon", before ?? "", {
+    timeout: 15_000,
   });
 }
 
 test.describe("ownship track heading", () => {
   test("parked GPS keeps the no-heading marker", async ({ page, context }) => {
     await openRadar(page, context);
-    await expect(page.locator("[data-track-heading]")).toHaveAttribute(
+    await expect(page.locator("[data-place][data-track-heading]")).toHaveAttribute(
       "data-track-heading",
       "",
     );
@@ -52,10 +60,13 @@ test.describe("ownship track heading", () => {
       path: "e2e/artifacts/ownship-parked-no-heading.png",
       fullPage: true,
     });
+    await page.locator(".tesla-location-marker").screenshot({
+      path: "e2e/artifacts/ownship-parked-marker.png",
+    });
 
     await refreshAt(page, context, NASHVILLE.latitude, eastOf(NASHVILLE.longitude, 6));
     await refreshAt(page, context, NASHVILLE.latitude, eastOf(NASHVILLE.longitude, 2));
-    await expect(page.locator("[data-track-heading]")).toHaveAttribute(
+    await expect(page.locator("[data-place][data-track-heading]")).toHaveAttribute(
       "data-track-heading",
       "",
     );
@@ -77,7 +88,9 @@ test.describe("ownship track heading", () => {
       );
     }
 
-    const raw = await page.locator("[data-track-heading]").getAttribute("data-track-heading");
+    const raw = await page
+      .locator("[data-place][data-track-heading]")
+      .getAttribute("data-track-heading");
     const heading = Number(raw);
     expect(heading).toBeGreaterThan(80);
     expect(heading).toBeLessThan(100);
@@ -86,6 +99,9 @@ test.describe("ownship track heading", () => {
     await page.screenshot({
       path: "e2e/artifacts/ownship-eastbound-heading.png",
       fullPage: true,
+    });
+    await page.locator(".tesla-location-marker").screenshot({
+      path: "e2e/artifacts/ownship-eastbound-marker.png",
     });
   });
 });

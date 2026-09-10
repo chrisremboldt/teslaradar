@@ -149,6 +149,8 @@ export function RadarDashboard() {
               className="rounded-2xl border border-white/10 bg-black/55 px-3 py-2.5 backdrop-blur-md"
               data-place={placeLabel ?? ""}
               data-relative={formatRelative(fix.timestamp, now)}
+              data-lat={String(fix.lat)}
+              data-lon={String(fix.lon)}
               data-track-heading={trackHeading == null ? "" : String(Math.round(trackHeading))}
             >
               <p className="text-lg font-semibold tracking-tight">{placeLabel}</p>

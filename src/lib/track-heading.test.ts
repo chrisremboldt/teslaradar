@@ -38,8 +38,8 @@ test("LOCATION_POLL_MS is 1 minute", () => {
 });
 
 test("GEO_MAXIMUM_AGE_MS is tighter than a stale 30s+ fix", () => {
+  assert.equal(GEO_MAXIMUM_AGE_MS, 0);
   assert.ok(GEO_MAXIMUM_AGE_MS <= 60_000);
-  assert.ok(GEO_MAXIMUM_AGE_MS < 30_000);
 });
 
 test("TRACK_WINDOW_MS is 5 minutes", () => {

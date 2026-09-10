@@ -1,7 +1,7 @@
 /** GPS poll cadence. Visibility-resume and Refresh now still request immediately. */
 export const LOCATION_POLL_MS = 60_000;
-/** Do not reuse a 30s+ cached fix on a 1-minute poll. */
-export const GEO_MAXIMUM_AGE_MS = 15_000;
+/** Always request a fresh fix so a 1-minute poll is not served a stale 30s+ reading. */
+export const GEO_MAXIMUM_AGE_MS = 0;
 export const GEO_TIMEOUT_MS = 15_000;
 /** Rolling window for ownship track heading. */
 export const TRACK_WINDOW_MS = 5 * 60 * 1000;

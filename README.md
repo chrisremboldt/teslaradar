@@ -22,7 +22,7 @@ v1 location source is **Chromium browser APIs only**. Tesla Fleet API / OAuth is
 
 | Piece | How it works |
 | --- | --- |
-| Location | `navigator.geolocation.getCurrentPosition` in the browser. 1-minute interval + visibility + manual refresh. `maximumAge` is 15s so a poll is not served a stale 30s+ fix. Coordinates never leave the device. |
+| Location | `navigator.geolocation.getCurrentPosition` in the browser. 1-minute interval + visibility + manual refresh. `maximumAge` is 0 so a poll is not served a stale 30s+ fix. Coordinates never leave the device. |
 | Ownship | Rolling in-memory GPS track (last 5 minutes). Chevron points at the distance-weighted circular mean of segment bearings. Segments under ~20 m or with huge accuracy are ignored so parked jitter does not spin the triangle. |
 | Radar | Client fetch of `https://api.rainviewer.com/public/weather-maps.json`. Coordinate-centered images: `{host}{path}/{size}/{z}/{lat}/{lon}/{color}/{options}.png` (512px, Universal Blue scheme `2`, zoom ≤7) preloaded and swapped on a canvas overlay. Free-tier notes (2026): past frames ~2h / 10 min, rate limit on the order of 100 req/IP/min. |
 | Compass | Sensor / orientation events. Optional `?heading=247` simulates a heading for development or screenshots (labeled **Simulated heading**). Compass still drives the badge and heading-up when present; the marker always prefers track heading. |
