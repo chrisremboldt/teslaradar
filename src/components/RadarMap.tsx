@@ -5,6 +5,7 @@ import { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
 import type { JumpToOptions } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { RadarOverlay } from "@/components/RadarOverlay";
+import { RangeRingsOverlay } from "@/components/RangeRingsOverlay";
 import {
   MAP_DEFAULT_ZOOM,
   MAP_MAX_ZOOM,
@@ -12,12 +13,7 @@ import {
   OSM_RASTER_TILES,
 } from "@/lib/constants";
 import { normalizeHeading } from "@/lib/format";
-import {
-  accuracyCircle,
-  emptyCollection,
-  rangeRingsCollection,
-  ringLabelLngLat,
-} from "@/lib/geo";
+import { accuracyCircle, emptyCollection, ringLabelLngLat } from "@/lib/geo";
 import type { RadarFrame } from "@/lib/types";
 
 type RadarMapProps = {
@@ -53,33 +49,11 @@ function applyAccuracy(
   }
 }
 
-function applyRangeRings(
-  map: MapLibreMap,
-  lon: number,
-  lat: number,
-  range5m: number | null | undefined,
-  range30m: number | null | undefined,
-) {
-  const source = map.getSource("range-rings") as GeoJSONSource | undefined;
-  if (!source) return;
-  const rings: { radiusMeters: number; id: string; label: string }[] = [];
-  if (range5m && range5m > 0) {
-    rings.push({ radiusMeters: range5m, id: "5", label: "5 min" });
-  }
-  if (range30m && range30m > 0) {
-    rings.push({ radiusMeters: range30m, id: "30", label: "30 min" });
-  }
-  source.setData(rings.length ? rangeRingsCollection(lon, lat, rings) : emptyCollection());
-}
-
 function placeRangeLabel(marker: Marker, lon: number, lat: number, radius: number | null | undefined) {
   const el = marker.getElement();
-  if (!radius || radius <= 0) {
-    el.style.display = "none";
-    return;
-  }
-  el.style.display = "";
-  marker.setLngLat(ringLabelLngLat(lon, lat, radius));
+  const show = Boolean(radius && radius > 0);
+  el.classList.toggle("is-hidden", !show);
+  if (show && radius) marker.setLngLat(ringLabelLngLat(lon, lat, radius));
 }
 
 export function RadarMap({
@@ -158,20 +132,18 @@ export function RadarMap({
       .addTo(mapInstance);
 
     const label5El = document.createElement("div");
-    label5El.className = "range-ring-label";
+    label5El.className = "range-ring-label is-hidden";
     label5El.textContent = "5 min";
     const label5 = new Marker({ element: label5El, anchor: "left" })
       .setLngLat([lon, lat])
       .addTo(mapInstance);
-    label5El.style.display = "none";
 
     const label30El = document.createElement("div");
-    label30El.className = "range-ring-label";
+    label30El.className = "range-ring-label is-hidden";
     label30El.textContent = "30 min";
     const label30 = new Marker({ element: label30El, anchor: "left" })
       .setLngLat([lon, lat])
       .addTo(mapInstance);
-    label30El.style.display = "none";
 
     mapInstance.on("load", () => {
       mapInstance.addSource("accuracy", {
@@ -197,35 +169,7 @@ export function RadarMap({
           "line-width": 1,
         },
       });
-      mapInstance.addSource("range-rings", {
-        type: "geojson",
-        data: emptyCollection(),
-      });
-      mapInstance.addLayer({
-        id: "range-ring-30",
-        type: "line",
-        source: "range-rings",
-        filter: ["==", ["get", "id"], "30"],
-        paint: {
-          "line-color": "#7dd3fc",
-          "line-opacity": 0.38,
-          "line-width": 1.1,
-          "line-dasharray": [3, 2.4],
-        },
-      });
-      mapInstance.addLayer({
-        id: "range-ring-5",
-        type: "line",
-        source: "range-rings",
-        filter: ["==", ["get", "id"], "5"],
-        paint: {
-          "line-color": "#bae6fd",
-          "line-opacity": 0.7,
-          "line-width": 1.6,
-        },
-      });
       applyAccuracy(mapInstance, lon, lat, accuracy);
-      applyRangeRings(mapInstance, lon, lat, range5m, range30m);
       setMap(mapInstance);
     });
 
@@ -275,9 +219,11 @@ export function RadarMap({
       delete markerEl.dataset.trackHeading;
     }
 
+    if (label5Ref.current) placeRangeLabel(label5Ref.current, lon, lat, range5m);
+    if (label30Ref.current) placeRangeLabel(label30Ref.current, lon, lat, range30m);
+
     const apply = () => {
       applyAccuracy(current, lon, lat, accuracy);
-      applyRangeRings(current, lon, lat, range5m, range30m);
       if (label5Ref.current) placeRangeLabel(label5Ref.current, lon, lat, range5m);
       if (label30Ref.current) placeRangeLabel(label30Ref.current, lon, lat, range30m);
       const nextBearing = headingUp && rotateHeading != null ? rotateHeading : 0;
@@ -290,7 +236,7 @@ export function RadarMap({
 
     if (current.isStyleLoaded()) apply();
     else current.once("load", apply);
-  }, [accuracy, followMe, heading, headingUp, lat, lon, mapHeading, range5m, range30m]);
+  }, [accuracy, followMe, heading, headingUp, lat, lon, map, mapHeading, range5m, range30m]);
 
   const frame = radarFrames[radarFrameIndex] ?? radarFrames.at(-1) ?? null;
 
@@ -307,6 +253,15 @@ export function RadarMap({
           host={radarHost}
           frames={radarFrames}
           frameIndex={radarFrameIndex}
+        />
+      ) : null}
+      {map ? (
+        <RangeRingsOverlay
+          map={map}
+          lon={lon}
+          lat={lat}
+          range5m={range5m ?? null}
+          range30m={range30m ?? null}
         />
       ) : null}
     </div>

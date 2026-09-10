@@ -175,6 +175,7 @@ test.describe("ownship track heading", () => {
     expect(range30).toBeLessThan(36_000);
     expect(range30 / range5).toBeGreaterThan(5.5);
     expect(range30 / range5).toBeLessThan(6.5);
+    await expect(page.locator("[data-range-overlay=on]")).toBeVisible();
     await expect(page.locator(".range-ring-label", { hasText: "5 min" })).toBeVisible();
     await expect(page.locator(".range-ring-label", { hasText: "30 min" })).toBeVisible();
     await expect(page.getByText("5 / 30 min rings")).toBeVisible();
