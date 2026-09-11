@@ -94,7 +94,7 @@ async function refreshAt(
   });
 }
 
-async function mockRefresh(page: Page, next: MockFix) {
+async function mockRefresh(page: Page, next: MockFix, expectMove = true) {
   const before = await page.locator("[data-place]").getAttribute("data-lon");
   await page.evaluate((fix) => {
     (window as unknown as { __pushGeo: (fix: MockFix) => void }).__pushGeo(fix);
@@ -103,9 +103,11 @@ async function mockRefresh(page: Page, next: MockFix) {
   await expect(page.getByRole("button", { name: "Refresh now" })).toBeEnabled({
     timeout: 20_000,
   });
-  await expect(page.locator("[data-place]")).not.toHaveAttribute("data-lon", before ?? "", {
-    timeout: 15_000,
-  });
+  if (expectMove) {
+    await expect(page.locator("[data-place]")).not.toHaveAttribute("data-lon", before ?? "", {
+      timeout: 15_000,
+    });
+  }
 }
 
 test.describe("ownship track heading", () => {
@@ -187,5 +189,40 @@ test.describe("ownship track heading", () => {
     await page.locator(".tesla-location-marker").screenshot({
       path: "e2e/artifacts/ownship-eastbound-marker.png",
     });
+  });
+
+  test("stoplight sit then go restores rings without a special refresh path", async ({
+    page,
+  }) => {
+    const t = Date.now();
+    await openRadarWithMockTrack(page, {
+      lat: NASHVILLE.lat,
+      lon: NASHVILLE.lon,
+      timestamp: t - 299_000,
+      accuracy: 10,
+    });
+
+    const stopAt = Date.now();
+    const stoppedLon = eastOf(NASHVILLE.lon, 80);
+    await mockRefresh(page, {
+      lat: NASHVILLE.lat,
+      lon: stoppedLon,
+      timestamp: stopAt,
+      accuracy: 10,
+    });
+    await expect(page.locator("[data-place]")).toHaveAttribute("data-motion", "parked");
+    await expect(page.locator("[data-place]")).toHaveAttribute("data-range-5", "");
+    await expect(page.locator("[data-range-overlay=on]")).toHaveCount(0);
+
+    await mockRefresh(page, {
+      lat: NASHVILLE.lat,
+      lon: eastOf(NASHVILLE.lon, 160),
+      timestamp: stopAt + 4_000,
+      accuracy: 10,
+    });
+    await expect(page.locator("[data-place]")).toHaveAttribute("data-motion", "moving");
+    const range5 = Number(await page.locator("[data-place]").getAttribute("data-range-5"));
+    expect(range5).toBeGreaterThan(4_000);
+    await expect(page.locator("[data-range-overlay=on]")).toBeVisible();
   });
 });

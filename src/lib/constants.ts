@@ -7,7 +7,11 @@ export const LOCATION_POLL_MS = 60_000;
 export const TESLA_LOCATION_POLL_MS = 4_000;
 /** Always request a fresh fix so a 1-minute poll is not served a stale 30s+ reading. */
 export const GEO_MAXIMUM_AGE_MS = 0;
-/** Tesla polls accept a recent reading so we do not re-lock GPS every 4s. */
+/**
+ * Tesla polls accept a recent reading so we do not re-lock GPS every 4s.
+ * After two stationary polls the next request is fresh so pull-away is not
+ * served the parked cache (Refresh still always uses maximumAge 0).
+ */
 export const GEO_TESLA_MAXIMUM_AGE_MS = 3_000;
 /** watchPosition may reuse a ~1s reading so follow camera can tick without a new GPS lock every time. */
 export const GEO_WATCH_MAXIMUM_AGE_MS = 1_000;
@@ -19,6 +23,13 @@ export const FOLLOW_JUMP_METERS = 500;
 export const USER_PAN_MIN_PX = 16;
 /** Rolling window for ownship track heading. */
 export const TRACK_WINDOW_MS = 5 * 60 * 1000;
+/**
+ * Range rings follow recent motion so a stoplight hide/show does not wait on
+ * the 5-minute heading window (or get diluted by the stop-to-go hop).
+ */
+export const TRACK_RECENT_WINDOW_MS = 45_000;
+/** Two Tesla polls this close mean we are stopped — next poll must be fresh. */
+export const GEO_STATIONARY_M = 15;
 /** Ignore GPS jitter shorter than this when averaging course. */
 export const TRACK_MIN_SEGMENT_M = 20;
 /** Drop fixes whose reported accuracy is this poor. */
@@ -50,6 +61,7 @@ export const RADAR_MAX_NATIVE_ZOOM = 7;
 export const RADAR_COORD_DECIMALS = 4;
 export const RADAR_FRAME_MS = 420;
 export const RADAR_HOLD_LAST_MS = 900;
+export const MAP_MIN_ZOOM = 3;
 export const MAP_MAX_ZOOM = 12;
 export const MAP_DEFAULT_ZOOM = 6.5;
 

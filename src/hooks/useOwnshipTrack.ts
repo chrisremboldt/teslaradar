@@ -8,18 +8,19 @@ import {
   TRACK_MAX_SPEED_MPS,
   TRACK_MIN_SEGMENT_M,
   TRACK_MIN_SPEED_MPS,
+  TRACK_RECENT_WINDOW_MS,
   TRACK_WINDOW_MS,
 } from "@/lib/constants";
 import type { GeoFix } from "@/lib/types";
 import {
   appendTrackPoint,
   averageTrackHeading,
-  averageTrackSpeedMps,
   rangeRingRadii,
+  recentTrackSpeedMps,
   type TrackPoint,
 } from "@/lib/track-heading";
 
-const RECOMPUTE_MS = 30_000;
+const RECOMPUTE_MS = 10_000;
 
 export type OwnshipTrack = {
   heading: number | null;
@@ -57,6 +58,11 @@ const TRACK_OPTIONS = {
   maxSpeedMps: TRACK_MAX_SPEED_MPS,
 };
 
+const SPEED_OPTIONS = {
+  ...TRACK_OPTIONS,
+  recentWindowMs: TRACK_RECENT_WINDOW_MS,
+};
+
 /**
  * Session-only rolling GPS track. Demo fixes are ignored so labeled cities
  * never invent a course or range rings.
@@ -83,7 +89,7 @@ export function useOwnshipTrack(fix: GeoFix | null): OwnshipTrack {
 
   if (!fix || fix.source === "demo") return EMPTY_TRACK;
   const heading = averageTrackHeading(track, now, TRACK_OPTIONS);
-  const speedMps = averageTrackSpeedMps(track, now, TRACK_OPTIONS);
+  const speedMps = recentTrackSpeedMps(track, now, SPEED_OPTIONS);
   const rings = rangeRingRadii(speedMps, {
     fiveMs: RANGE_RING_5_MS,
     thirtyMs: RANGE_RING_30_MS,

@@ -12,7 +12,7 @@ import {
   TESLA_LOCATION_POLL_MS,
   type DemoLocationId,
 } from "@/lib/constants";
-import { shouldSkipPoll } from "@/lib/geolocation-watch";
+import { shouldSkipPoll, shouldUseCachedTeslaPoll } from "@/lib/geolocation-watch";
 import { isTeslaBrowser, shouldWatchGeolocation } from "@/lib/tesla-browser";
 import {
   getCachedGpsSnapshot,
@@ -76,6 +76,8 @@ export function useGeolocation(options: UseGeolocationOptions = {}) {
   const liveRef = useRef<GeoFix | null>(null);
   const lastWatchAtRef = useRef<number | null>(null);
   const watchActiveRef = useRef(false);
+  const lastGpsRef = useRef<{ lat: number; lon: number } | null>(null);
+  const teslaStationaryRef = useRef(false);
 
   useEffect(() => {
     mounted.current = true;
@@ -94,6 +96,12 @@ export function useGeolocation(options: UseGeolocationOptions = {}) {
       source: "gps",
     };
     saveCachedGps(next);
+    const previous = lastGpsRef.current;
+    lastGpsRef.current = { lat: next.lat, lon: next.lon };
+    teslaStationaryRef.current = !shouldUseCachedTeslaPoll({
+      previous,
+      current: lastGpsRef.current,
+    });
     if (!mounted.current) return;
     liveRef.current = next;
     setLive(next);
@@ -146,7 +154,8 @@ export function useGeolocation(options: UseGeolocationOptions = {}) {
         return;
       }
       setIsRefreshing(true);
-      const teslaPoll = isTeslaBrowser() && mode === "poll";
+      const teslaPoll =
+        isTeslaBrowser() && mode === "poll" && !teslaStationaryRef.current;
       navigator.geolocation.getCurrentPosition(
         applyGps,
         (geoError) => fail(classifyError(geoError)),

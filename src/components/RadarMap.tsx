@@ -11,6 +11,7 @@ import {
   FOLLOW_JUMP_METERS,
   MAP_DEFAULT_ZOOM,
   MAP_MAX_ZOOM,
+  MAP_MIN_ZOOM,
   OSM_ATTRIBUTION,
   OSM_RASTER_TILES,
   USER_PAN_MIN_PX,
@@ -127,6 +128,7 @@ export function RadarMap({
   const tesla = isTeslaBrowser();
   const [map, setMap] = useState<MapLibreMap | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
+  const [zoom, setZoom] = useState(MAP_DEFAULT_ZOOM);
 
   useEffect(() => {
     onUserPanRef.current = onUserPan;
@@ -168,7 +170,7 @@ export function RadarMap({
         center: [lon, lat],
         zoom: MAP_DEFAULT_ZOOM,
         maxZoom: MAP_MAX_ZOOM,
-        minZoom: 3,
+        minZoom: MAP_MIN_ZOOM,
         attributionControl: { compact: true },
         fadeDuration: 0,
         validateStyle: false,
@@ -397,6 +399,22 @@ export function RadarMap({
     apply();
   }, [accuracy, followMe, heading, headingUp, lat, lon, map, mapHeading, range5m, range30m]);
 
+  useEffect(() => {
+    if (!map) return;
+    const syncZoom = () => setZoom(map.getZoom());
+    syncZoom();
+    map.on("zoom", syncZoom);
+    map.on("zoomend", syncZoom);
+    return () => {
+      map.off("zoom", syncZoom);
+      map.off("zoomend", syncZoom);
+    };
+  }, [map]);
+
+  const zoomDuration = tesla ? 0 : 200;
+  const atMinZoom = zoom <= MAP_MIN_ZOOM + 0.01;
+  const atMaxZoom = zoom >= MAP_MAX_ZOOM - 0.01;
+
   const frame = radarFrames[radarFrameIndex] ?? radarFrames.at(-1) ?? null;
 
   return (
@@ -434,6 +452,28 @@ export function RadarMap({
           range5m={range5m ?? null}
           range30m={range30m ?? null}
         />
+      ) : null}
+      {map ? (
+        <div className="map-zoom" data-map-zoom-controls="">
+          <button
+            type="button"
+            className="map-zoom-btn"
+            aria-label="Zoom in"
+            disabled={atMaxZoom}
+            onClick={() => map.zoomIn({ duration: zoomDuration })}
+          >
+            +
+          </button>
+          <button
+            type="button"
+            className="map-zoom-btn"
+            aria-label="Zoom out"
+            disabled={atMinZoom}
+            onClick={() => map.zoomOut({ duration: zoomDuration })}
+          >
+            −
+          </button>
+        </div>
       ) : null}
     </div>
   );

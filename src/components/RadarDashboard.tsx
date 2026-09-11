@@ -188,6 +188,7 @@ export function RadarDashboard() {
               data-lon={String(fix.lon)}
               data-track-heading={trackHeading == null ? "" : String(Math.round(trackHeading))}
               data-speed-mps={ownship.speedMps == null ? "" : ownship.speedMps.toFixed(2)}
+              data-motion={ownship.speedMps == null ? "parked" : "moving"}
               data-range-5={ownship.range5m == null ? "" : String(Math.round(ownship.range5m))}
               data-range-30={ownship.range30m == null ? "" : String(Math.round(ownship.range30m))}
             >
