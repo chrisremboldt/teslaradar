@@ -7,6 +7,12 @@ export type RadarCacheImage = {
 
 export type RadarImageCache<T extends RadarCacheImage = RadarCacheImage> = Map<string, T>;
 
+export type RadarPaintImage<T> = {
+  image: T;
+  url: string;
+  held: boolean;
+};
+
 /**
  * Drop the decoded bitmap. Old Chromium (Tesla ~79) will not GC a loaded
  * <img> until src is cleared, even after the Map entry is deleted.
@@ -60,7 +66,58 @@ export function clearRadarImageCache<T extends RadarCacheImage>(cache: RadarImag
   cache.clear();
 }
 
-/** Lean: paused = playhead only (1). Optional animate = playhead ±1 (3). */
+/**
+ * Paused keeps 1. Play may keep the full past loop (capped by the animated
+ * limit the caller passes as `preloadCount`).
+ */
 export function radarImageCacheLimit(_tesla?: boolean, preloadCount = 1): number {
-  return Math.min(3, Math.max(1, preloadCount));
+  const n = Number.isFinite(preloadCount) ? Math.floor(preloadCount) : 1;
+  return Math.max(1, n);
+}
+
+/** Pause: keep the latest playhead, `src=""` everything else. */
+export function shrinkRadarImageCacheToPlayhead<T extends RadarCacheImage>(
+  cache: RadarImageCache<T>,
+  playheadUrl: string,
+  pausedLimit = 1,
+): number {
+  const keep = playheadUrl ? new Set([playheadUrl]) : new Set<string>();
+  const evicted = evictRadarImages(cache, keep);
+  return evicted + capRadarImageCache(cache, pausedLimit, keep);
+}
+
+/**
+ * Prefer the target frame; if it is not decoded yet, reuse the last good URL
+ * so the overlay never clear-to-empties mid-loop.
+ */
+export function resolveRadarPaintImage<T>(
+  images: Map<string, T>,
+  url: string,
+  lastUrl: string | null,
+): RadarPaintImage<T> | null {
+  if (url) {
+    const current = images.get(url);
+    if (current) return { image: current, url, held: false };
+  }
+  if (lastUrl) {
+    const held = images.get(lastUrl);
+    if (held) return { image: held, url: lastUrl, held: true };
+  }
+  return null;
+}
+
+export function isRadarPlayReady(flag: string | null | undefined): boolean {
+  return flag === "1";
+}
+
+/**
+ * Play waits until playhead±1 are decoded, then steps. A timeout keeps a
+ * missing neighbor from stalling the loop forever.
+ */
+export function shouldAdvanceRadarPlayhead(input: {
+  ready: boolean;
+  elapsedMs: number;
+  timeoutMs: number;
+}): boolean {
+  return input.ready || input.elapsedMs >= input.timeoutMs;
 }

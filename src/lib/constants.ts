@@ -60,13 +60,21 @@ export const TRACK_MIN_SPEED_MPS = 0.75;
 export const TRACK_MAX_SPEED_MPS = 70;
 export const RANGE_RING_5_MS = 5 * 60 * 1000;
 export const RANGE_RING_30_MS = 30 * 60 * 1000;
-/** Catalog refresh while the tab is visible. Hidden tabs skip the tick. */
-export const RADAR_REFRESH_MS = 8 * 60 * 1000;
+/** Catalog refresh while the tab is visible (~RainViewer 10-min cadence). Hidden tabs skip. */
+export const RADAR_REFRESH_MS = 2 * 60 * 1000;
 /** Fraction of a mercator tile — wide enough that highway hops reuse the PNG. */
 export const RADAR_ANCHOR_SLOP = 0.5;
-/** Decoded RainViewer bitmaps. Latest-frame (paused) keeps only the playhead. */
+/** Decoded RainViewer bitmaps. Paused keeps only the latest playhead. */
 export const RADAR_IMAGE_CACHE_LIMIT = 1;
-export const RADAR_IMAGE_CACHE_LIMIT_ANIMATED = 3;
+/**
+ * Play preloads the current past window (~13 × 512²). Released on Pause.
+ * 16 leaves a little room if RainViewer adds a frame mid-loop.
+ */
+export const RADAR_IMAGE_CACHE_LIMIT_ANIMATED = 16;
+/** Neighbors on each side that must decode before the playhead steps (or timeout). */
+export const RADAR_PLAY_WARM_RADIUS = 1;
+/** Do not stall Play if a neighbor PNG is slow or 404s. */
+export const RADAR_PLAY_WARM_TIMEOUT_MS = 2_000;
 export const LOCATION_STORAGE_KEY = "teslaradar:last-gps";
 export const PREFS_STORAGE_KEY = "teslaradar:prefs";
 /** v2: cold loads follow; older blobs with followMe:false from a pan are migrated once. */
