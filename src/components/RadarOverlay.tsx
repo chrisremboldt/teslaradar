@@ -2,7 +2,16 @@
 
 import { useEffect, useRef } from "react";
 import type { Map as MapLibreMap } from "maplibre-gl";
-import { RADAR_LAYER_OPACITY } from "@/lib/constants";
+import { RADAR_LAYER_OPACITY, TESLA_OVERLAY_MIN_DRAW_MS } from "@/lib/constants";
+import {
+  shouldDrawRadarOverlay,
+  type OverlayDrawReason,
+} from "@/lib/overlay-draw";
+import {
+  capRadarImageCache,
+  clearRadarImageCache,
+  evictRadarImages,
+} from "@/lib/radar-image-cache";
 import {
   radarAnchorStillCovers,
   radarFramesToPreload,
@@ -14,6 +23,7 @@ import {
 import {
   isTeslaBrowser,
   overlayPixelRatioForBrowser,
+  radarImageCacheLimitForBrowser,
   radarPreloadRadius,
 } from "@/lib/tesla-browser";
 import type { RadarFrame } from "@/lib/types";
@@ -23,6 +33,10 @@ type RadarOverlayProps = {
   host: string | null;
   frames: RadarFrame[];
   frameIndex: number;
+};
+
+type OverlayApi = {
+  sync: (reason: OverlayDrawReason) => void;
 };
 
 function loadImage(url: string): Promise<HTMLImageElement> {
@@ -37,6 +51,10 @@ function loadImage(url: string): Promise<HTMLImageElement> {
 /**
  * Canvas RainViewer overlay. Frames are preloaded as `<img>` and painted on a
  * timer — never through MapLibre raster sources (unreliable on Tesla Chromium).
+ *
+ * Tesla: hard-capped image cache (playhead ±1), src="" on eviction, no `move`
+ * listener (settle / frame / resize only) so a 1920×1200 2D canvas does not
+ * redraw on every follow jumpTo.
  */
 export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -45,12 +63,14 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
   const hostRef = useRef(host);
   const framesRef = useRef(frames);
   const frameIndexRef = useRef(frameIndex);
-  const drawRef = useRef<() => void>(() => undefined);
+  const apiRef = useRef<OverlayApi | null>(null);
+  const lastDrawAtRef = useRef<number | null>(null);
 
   useEffect(() => {
     hostRef.current = host;
     framesRef.current = frames;
     frameIndexRef.current = frameIndex;
+    apiRef.current?.sync("frame");
   }, [frameIndex, frames, host]);
 
   useEffect(() => {
@@ -73,8 +93,12 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
     let raf = 0;
     const tesla = isTeslaBrowser();
     const pixelRatio = overlayPixelRatioForBrowser(tesla, window.devicePixelRatio || 1);
+    const cacheLimit = radarImageCacheLimitForBrowser(tesla);
     const ctx = canvas.getContext("2d");
     canvas.dataset.pixelRatio = String(pixelRatio);
+    canvas.dataset.radarCacheSize = "0";
+
+    const hidden = () => document.visibilityState !== "visible";
 
     const activeFrame = () =>
       framesRef.current[frameIndexRef.current] ?? framesRef.current.at(-1) ?? null;
@@ -84,16 +108,31 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
       return activeHost ? radarImageUrl(activeHost, frame.path, anchor) : "";
     };
 
-    const wantedUrls = (anchor: RadarImageAnchor, host: string) => {
+    const wantedUrls = (anchor: RadarImageAnchor, activeHost: string) => {
       const subset = radarFramesToPreload(
         framesRef.current,
         frameIndexRef.current,
         radarPreloadRadius(tesla),
       );
-      return new Set(subset.map((frame) => radarImageUrl(host, frame.path, anchor)));
+      return new Set(subset.map((frame) => radarImageUrl(activeHost, frame.path, anchor)));
     };
 
-    const draw = () => {
+    const paint = (reason: OverlayDrawReason) => {
+      const now = performance.now();
+      if (
+        !shouldDrawRadarOverlay({
+          tesla,
+          reason,
+          lastDrawAt: lastDrawAtRef.current,
+          now,
+          hidden: hidden(),
+          minIntervalMs: TESLA_OVERLAY_MIN_DRAW_MS,
+        })
+      ) {
+        return;
+      }
+      lastDrawAtRef.current = now;
+
       const anchor = anchorRef.current;
       const frame = activeFrame();
       if (!ctx) return;
@@ -115,6 +154,9 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
       canvas.dataset.radarPath = frame?.path ?? "";
       canvas.dataset.radarIndex = frame ? String(frameIndexRef.current) : "";
       canvas.dataset.radarZoom = anchor ? String(anchor.zoom) : "";
+      canvas.dataset.radarCacheSize = String(images.size);
+      canvas.dataset.radarLastDraw = String(Math.round(now));
+      canvas.dataset.radarDrawReason = reason;
 
       const image = url ? images.get(url) : undefined;
       canvas.dataset.radarPainted = image && anchor ? "1" : "0";
@@ -133,13 +175,15 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
       ctx.restore();
     };
 
-    drawRef.current = draw;
-
-    const scheduleDraw = () => {
+    const schedule = (reason: OverlayDrawReason) => {
+      if (reason === "move" && tesla) {
+        paint("move");
+        return;
+      }
       if (raf) return;
       raf = window.requestAnimationFrame(() => {
         raf = 0;
-        draw();
+        paint(reason);
       });
     };
 
@@ -155,8 +199,9 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
     const preload = (next: RadarImageAnchor) => {
       const activeHost = hostRef.current;
       if (!activeHost || framesRef.current.length === 0) {
-        images.clear();
-        scheduleDraw();
+        clearRadarImageCache(images);
+        canvas.dataset.radarCacheSize = "0";
+        schedule("preload");
         return;
       }
       const gen = ++loadGen;
@@ -165,9 +210,9 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
         const frame = activeFrame();
         return frame ? radarImageUrl(activeHost, frame.path, next) : "";
       })();
-      for (const key of images.keys()) {
-        if (!wanted.has(key)) images.delete(key);
-      }
+      evictRadarImages(images, wanted);
+      capRadarImageCache(images, cacheLimit, wanted);
+      canvas.dataset.radarCacheSize = String(images.size);
       const ordered = [...wanted].sort((a, b) => {
         if (a === current) return -1;
         if (b === current) return 1;
@@ -177,21 +222,26 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
         if (images.has(url)) continue;
         void loadImage(url)
           .then((image) => {
-            if (gen !== loadGen) return;
+            if (gen !== loadGen || !wanted.has(url)) {
+              image.src = "";
+              return;
+            }
             images.set(url, image);
-            scheduleDraw();
+            capRadarImageCache(images, cacheLimit, wanted);
+            canvas.dataset.radarCacheSize = String(images.size);
+            schedule("preload");
           })
           .catch(() => undefined);
       }
-      scheduleDraw();
+      schedule("preload");
     };
 
-    const applyAnchor = (force = false) => {
+    const applyAnchor = (force = false, reason: OverlayDrawReason = "settle") => {
       const next = resolveAnchor();
       const activeHost = hostRef.current;
       if (!next || !activeHost) {
         anchorRef.current = next;
-        scheduleDraw();
+        schedule(reason);
         return;
       }
       const prev = anchorRef.current;
@@ -201,81 +251,52 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
         preload(next);
         return;
       }
-      scheduleDraw();
+      schedule(reason);
     };
 
-    const onMove = () => scheduleDraw();
-    const onIdle = () => applyAnchor(false);
+    const sync = (reason: OverlayDrawReason) => {
+      applyAnchor(false, reason);
+    };
+    apiRef.current = { sync };
 
-    map.on("move", onMove);
-    map.on("resize", onIdle);
+    const onMove = () => schedule("move");
+    const onIdle = () => applyAnchor(false, "settle");
+    const onResize = () => applyAnchor(false, "resize");
+
+    // Tesla: skip the high-frequency `move` stream (follow jumpTo + GL).
+    // Phone keeps it so easeTo stays glued to the radar image.
+    if (!tesla) map.on("move", onMove);
+    map.on("resize", onResize);
     map.on("moveend", onIdle);
     map.on("zoomend", onIdle);
-    applyAnchor(true);
+    applyAnchor(true, "force");
 
     let observer: ResizeObserver | null = null;
     if (typeof ResizeObserver === "function") {
-      observer = new ResizeObserver(() => applyAnchor(false));
+      observer = new ResizeObserver(() => applyAnchor(false, "resize"));
       observer.observe(map.getContainer());
     }
 
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") schedule("force");
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
     return () => {
       loadGen += 1;
-      drawRef.current = () => undefined;
+      apiRef.current = null;
       if (raf) window.cancelAnimationFrame(raf);
       observer?.disconnect();
-      map.off("move", onMove);
-      map.off("resize", onIdle);
+      document.removeEventListener("visibilitychange", onVisibility);
+      if (!tesla) map.off("move", onMove);
+      map.off("resize", onResize);
       map.off("moveend", onIdle);
       map.off("zoomend", onIdle);
       canvas.remove();
       canvasRef.current = null;
-      images.clear();
+      clearRadarImageCache(images);
     };
   }, [map]);
-
-  useEffect(() => {
-    const container = map.getContainer();
-    const center = map.getCenter();
-    const computed = radarImageAnchor(
-      center.lat,
-      center.lng,
-      map.getZoom(),
-      container.clientWidth,
-      container.clientHeight,
-    );
-    const prev = anchorRef.current;
-    const anchor = prev && radarAnchorStillCovers(prev, computed) ? prev : computed;
-    anchorRef.current = anchor;
-    if (!host || frames.length === 0) {
-      drawRef.current();
-      return;
-    }
-    const images = imagesRef.current;
-    const tesla = isTeslaBrowser();
-    const wanted = new Set(
-      radarFramesToPreload(frames, frameIndex, radarPreloadRadius(tesla)).map((frame) =>
-        radarImageUrl(host, frame.path, anchor),
-      ),
-    );
-    for (const key of images.keys()) {
-      if (!wanted.has(key)) images.delete(key);
-    }
-    for (const url of wanted) {
-      if (images.has(url)) continue;
-      void loadImage(url)
-        .then((image) => {
-          images.set(url, image);
-          drawRef.current();
-        })
-        .catch(() => undefined);
-    }
-    drawRef.current();
-  }, [frameIndex, frames, host, map]);
-
-  useEffect(() => {
-    drawRef.current();
-  }, [frameIndex]);
 
   return null;
 }

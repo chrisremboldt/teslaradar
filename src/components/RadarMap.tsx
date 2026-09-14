@@ -17,6 +17,7 @@ import {
   USER_PAN_MIN_PX,
 } from "@/lib/constants";
 import { isCameraOnTarget, planFollowCamera, shouldTreatAsUserPan } from "@/lib/follow-camera";
+import { isSubpixelCameraHop } from "@/lib/overlay-draw";
 import { normalizeHeading } from "@/lib/format";
 import { accuracyCircle, emptyCollection, ringLabelLngLat } from "@/lib/geo";
 import {
@@ -257,10 +258,20 @@ export function RadarMap({
       setMap(mapInstance);
     });
 
+    let publishRaf = 0;
     const publish = () => {
+      if (constrained) {
+        if (publishRaf) return;
+        publishRaf = window.requestAnimationFrame(() => {
+          publishRaf = 0;
+          publishFollowState(rootRef.current, mapInstance, markerRef.current);
+        });
+        return;
+      }
       publishFollowState(rootRef.current, mapInstance, markerRef.current);
     };
-    mapInstance.on("move", publish);
+    // Tesla: settle only. Phone keeps `move` so e2e / follow HUD stay live mid-ease.
+    if (!constrained) mapInstance.on("move", publish);
     mapInstance.on("moveend", publish);
 
     let dragStartLngLat: { lat: number; lng: number } | null = null;
@@ -297,6 +308,7 @@ export function RadarMap({
     label30Ref.current = label30;
 
     return () => {
+      if (publishRaf) window.cancelAnimationFrame(publishRaf);
       glCanvas.removeEventListener("webglcontextlost", onContextLost);
       if (window.__TESLARADAR_MAP__ === mapInstance) {
         bindTestMapHandle(null);
@@ -369,7 +381,17 @@ export function RadarMap({
         mapBearing: current.getBearing(),
         plan,
       });
-      if (!alreadyThere) {
+      const teslaJump = preferJumpFollow(isTeslaBrowser());
+      const skipSubpixel =
+        teslaJump &&
+        !firstLock &&
+        !followJustEnabled &&
+        plan.center != null &&
+        isSubpixelCameraHop(
+          current.project([mapCenter.lng, mapCenter.lat]),
+          current.project(plan.center),
+        );
+      if (!alreadyThere && !skipSubpixel) {
         const gen = programmaticGenRef.current + 1;
         programmaticGenRef.current = gen;
         programmaticMoveRef.current = true;
@@ -403,13 +425,13 @@ export function RadarMap({
     if (!map) return;
     const syncZoom = () => setZoom(map.getZoom());
     syncZoom();
-    map.on("zoom", syncZoom);
+    if (!tesla) map.on("zoom", syncZoom);
     map.on("zoomend", syncZoom);
     return () => {
-      map.off("zoom", syncZoom);
+      if (!tesla) map.off("zoom", syncZoom);
       map.off("zoomend", syncZoom);
     };
-  }, [map]);
+  }, [map, tesla]);
 
   const zoomDuration = tesla ? 0 : 200;
   const atMinZoom = zoom <= MAP_MIN_ZOOM + 0.01;

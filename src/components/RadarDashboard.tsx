@@ -69,6 +69,8 @@ export function RadarDashboard() {
   }, [searchParams]);
 
   const tesla = isTeslaBrowser();
+  const debug = searchParams.get("debug") === "1";
+  const [debugLine, setDebugLine] = useState("");
   const { prefs, update } = usePreferences();
   const { fix, error, isRefreshing, hasResolved, refresh, applyDemo, watching, pollIntervalMs } =
     useGeolocation({
@@ -90,6 +92,23 @@ export function RadarDashboard() {
     applyTeslaDocumentClass(tesla);
     return () => applyTeslaDocumentClass(false);
   }, [tesla]);
+
+  useEffect(() => {
+    if (!debug) return undefined;
+    const tick = () => {
+      const el = document.querySelector(".radar-overlay-canvas");
+      if (!el) {
+        setDebugLine("radar overlay n/a");
+        return;
+      }
+      setDebugLine(
+        `cache ${el.getAttribute("data-radar-cache-size") ?? "?"} · draw ${el.getAttribute("data-radar-draw-reason") ?? "?"}`,
+      );
+    };
+    tick();
+    const timer = window.setInterval(tick, 1000);
+    return () => window.clearInterval(timer);
+  }, [debug]);
 
   const mapHeading = compass.heading ?? trackHeading;
   const headingUpActive = prefs.headingUp && mapHeading != null;
@@ -189,6 +208,7 @@ export function RadarDashboard() {
               data-track-heading={trackHeading == null ? "" : String(Math.round(trackHeading))}
               data-speed-mps={ownship.speedMps == null ? "" : ownship.speedMps.toFixed(2)}
               data-motion={ownship.speedMps == null ? "parked" : "moving"}
+              data-debug={debug ? "on" : undefined}
               data-range-5={ownship.range5m == null ? "" : String(Math.round(ownship.range5m))}
               data-range-30={ownship.range30m == null ? "" : String(Math.round(ownship.range30m))}
             >
@@ -241,6 +261,15 @@ export function RadarDashboard() {
           ) : null}
         </header>
       </div>
+
+      {debug ? (
+        <pre
+          data-debug-overlay="on"
+          className="pointer-events-none absolute left-2 top-[min(34vh,16rem)] z-20 max-w-[16rem] truncate rounded bg-black/70 px-2 py-1 font-mono text-[10px] text-zinc-300"
+        >
+          {debugLine || "debug"}
+        </pre>
+      ) : null}
 
       {compass.heading != null &&
       (compass.status === "available" || compass.status === "simulated") ? (

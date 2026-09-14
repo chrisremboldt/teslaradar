@@ -28,6 +28,16 @@ export const TRACK_WINDOW_MS = 5 * 60 * 1000;
  * the 5-minute heading window (or get diluted by the stop-to-go hop).
  */
 export const TRACK_RECENT_WINDOW_MS = 45_000;
+/** Net displacement / path window for parked-vs-moving (not one pairwise hop). */
+export const TRACK_MOTION_WINDOW_MS = 24_000;
+/** Stay moving until speed/displacement stay quiet this long (stoplight flicker). */
+export const TRACK_HOLD_MOVING_MS = 4_000;
+/** From parked, require this much evidence before flipping (except native speed). */
+export const TRACK_HOLD_PARKED_MS = 1_500;
+/** Ignore native coords.speed / heading older than this. */
+export const TRACK_NATIVE_STALE_MS = 15_000;
+/** Tesla overlay: cap move-driven paints (~8 fps). Frame/settle always draw. */
+export const TESLA_OVERLAY_MIN_DRAW_MS = 125;
 /** Two Tesla polls this close mean we are stopped — next poll must be fresh. */
 export const GEO_STATIONARY_M = 15;
 /** Ignore GPS jitter shorter than this when averaging course. */

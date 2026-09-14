@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useLayoutEffect, useRef } from "react";
 import type { Map as MapLibreMap } from "maplibre-gl";
 import { ringLabelLngLat } from "@/lib/geo";
+import { isTeslaBrowser } from "@/lib/tesla-browser";
 
 type RangeRingsOverlayProps = {
   map: MapLibreMap;
@@ -10,13 +11,6 @@ type RangeRingsOverlayProps = {
   lat: number;
   range5m: number | null;
   range30m: number | null;
-};
-
-type RingFrame = {
-  x: number;
-  y: number;
-  r5: number;
-  r30: number;
 };
 
 function projectedRadius(
@@ -31,8 +25,22 @@ function projectedRadius(
   return Math.hypot(rim.x - center.x, rim.y - center.y);
 }
 
+function writeCircle(
+  el: SVGCircleElement | null,
+  x: number,
+  y: number,
+  radius: number,
+) {
+  if (!el || radius <= 0) return;
+  el.setAttribute("cx", x.toFixed(1));
+  el.setAttribute("cy", y.toFixed(1));
+  el.setAttribute("r", radius.toFixed(1));
+}
+
 /**
  * SVG rings sit above the radar canvas (MapLibre layers would be hidden under it).
+ * Position updates are imperative — no React setState on every map `move`.
+ * Tesla only listens to settle/resize/zoomend.
  */
 export function RangeRingsOverlay({
   map,
@@ -41,23 +49,31 @@ export function RangeRingsOverlay({
   range5m,
   range30m,
 }: RangeRingsOverlayProps) {
-  const [frame, setFrame] = useState<RingFrame | null>(null);
+  const c5Ref = useRef<SVGCircleElement>(null);
+  const c30Ref = useRef<SVGCircleElement>(null);
+  const visible = Boolean(range5m || range30m);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    if (!visible) return;
     let raf = 0;
+    const tesla = isTeslaBrowser();
+
     const update = () => {
-      if (!range5m && !range30m) {
-        setFrame(null);
-        return;
-      }
       const center = map.project([lon, lat]);
-      setFrame({
-        x: center.x,
-        y: center.y,
-        r5: range5m ? projectedRadius(map, lon, lat, range5m) : 0,
-        r30: range30m ? projectedRadius(map, lon, lat, range30m) : 0,
-      });
+      writeCircle(
+        c5Ref.current,
+        center.x,
+        center.y,
+        range5m ? projectedRadius(map, lon, lat, range5m) : 0,
+      );
+      writeCircle(
+        c30Ref.current,
+        center.x,
+        center.y,
+        range30m ? projectedRadius(map, lon, lat, range30m) : 0,
+      );
     };
+
     const schedule = () => {
       if (raf) return;
       raf = window.requestAnimationFrame(() => {
@@ -65,23 +81,32 @@ export function RangeRingsOverlay({
         update();
       });
     };
-    schedule();
-    map.on("move", schedule);
-    map.on("rotate", schedule);
-    map.on("zoom", schedule);
-    map.on("pitch", schedule);
+
+    update();
+    if (!tesla) {
+      map.on("move", schedule);
+      map.on("rotate", schedule);
+      map.on("zoom", schedule);
+      map.on("pitch", schedule);
+    }
+    map.on("moveend", schedule);
+    map.on("zoomend", schedule);
     map.on("resize", schedule);
     return () => {
       if (raf) window.cancelAnimationFrame(raf);
-      map.off("move", schedule);
-      map.off("rotate", schedule);
-      map.off("zoom", schedule);
-      map.off("pitch", schedule);
+      if (!tesla) {
+        map.off("move", schedule);
+        map.off("rotate", schedule);
+        map.off("zoom", schedule);
+        map.off("pitch", schedule);
+      }
+      map.off("moveend", schedule);
+      map.off("zoomend", schedule);
       map.off("resize", schedule);
     };
-  }, [lat, lon, map, range30m, range5m]);
+  }, [lat, lon, map, range30m, range5m, visible]);
 
-  if (!frame || (!range5m && !range30m)) return null;
+  if (!visible) return null;
 
   return (
     <svg
@@ -89,20 +114,22 @@ export function RangeRingsOverlay({
       aria-hidden
       data-range-overlay="on"
     >
-      {frame.r30 > 0 ? (
+      {range30m ? (
         <circle
+          ref={c30Ref}
           className="range-ring-stroke range-ring-stroke-30"
-          cx={frame.x}
-          cy={frame.y}
-          r={frame.r30}
+          cx="0"
+          cy="0"
+          r="0"
         />
       ) : null}
-      {frame.r5 > 0 ? (
+      {range5m ? (
         <circle
+          ref={c5Ref}
           className="range-ring-stroke range-ring-stroke-5"
-          cx={frame.x}
-          cy={frame.y}
-          r={frame.r5}
+          cx="0"
+          cy="0"
+          r="0"
         />
       ) : null}
     </svg>

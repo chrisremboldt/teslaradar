@@ -19,6 +19,7 @@ import {
   saveCachedGps,
   subscribeCachedGps,
 } from "@/lib/storage";
+import { readNativeCourseDeg, readNativeSpeedMps } from "@/lib/ownship-motion";
 import { normalizeEpochMs } from "@/lib/time";
 import type { GeoFix, LocationErrorKind } from "@/lib/types";
 
@@ -94,6 +95,8 @@ export function useGeolocation(options: UseGeolocationOptions = {}) {
         typeof position.coords.accuracy === "number" ? position.coords.accuracy : null,
       timestamp: normalizeEpochMs(position.timestamp || Date.now()),
       source: "gps",
+      speedMps: readNativeSpeedMps(position.coords.speed),
+      courseDeg: readNativeCourseDeg(position.coords.heading),
     };
     saveCachedGps(next);
     const previous = lastGpsRef.current;
