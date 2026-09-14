@@ -18,15 +18,11 @@ async function seedPrefs(page: Page) {
 
 async function installJitterGeo(page: Page) {
   await page.addInitScript((seed) => {
-    let lat = seed.lat;
-    let lon = seed.lon;
-    const watchers = new Set<(position: GeolocationPosition) => void>();
-
     const toPosition = (): GeolocationPosition =>
       ({
         coords: {
-          latitude: lat,
-          longitude: lon,
+          latitude: seed.lat,
+          longitude: seed.lon,
           accuracy: 12,
           altitude: null,
           altitudeAccuracy: null,
@@ -39,27 +35,13 @@ async function installJitterGeo(page: Page) {
     navigator.geolocation.getCurrentPosition = (success) => {
       success(toPosition());
     };
-    navigator.geolocation.watchPosition = (success) => {
-      watchers.add(success);
-      success(toPosition());
-      const timer = window.setInterval(() => {
-        lat = seed.lat + (Math.random() - 0.5) * 0.004;
-        lon = seed.lon + (Math.random() - 0.5) * 0.004;
-        for (const watcher of watchers) watcher(toPosition());
-      }, 180);
-      (
-        window as unknown as { __stopJitter?: () => void }
-      ).__stopJitter = () => window.clearInterval(timer);
-      return 1;
-    };
-    navigator.geolocation.clearWatch = () => {
-      watchers.clear();
-    };
+    navigator.geolocation.watchPosition = () => 0;
+    navigator.geolocation.clearWatch = () => undefined;
   }, NASHVILLE);
 }
 
 test.describe("place + radar after follow PRs", () => {
-  test("city arrives despite 1 Hz GPS jitter and radar paints above the map", async ({
+  test("city arrives and radar paints above the map", async ({
     page,
   }) => {
     await page.route("https://nominatim.openstreetmap.org/reverse**", async (route) => {

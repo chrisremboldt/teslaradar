@@ -60,8 +60,7 @@ export function clearRadarImageCache<T extends RadarCacheImage>(cache: RadarImag
   cache.clear();
 }
 
-/** Tesla: playhead ±1 only (3). Phone: a hard cap so a catalog never piles up. */
-export function radarImageCacheLimit(tesla: boolean, preloadCount = tesla ? 3 : 16): number {
-  if (tesla) return Math.min(3, Math.max(1, preloadCount));
-  return Math.max(1, Math.min(16, preloadCount));
+/** Lean: paused = playhead only (1). Optional animate = playhead ±1 (3). */
+export function radarImageCacheLimit(_tesla?: boolean, preloadCount = 1): number {
+  return Math.min(3, Math.max(1, preloadCount));
 }

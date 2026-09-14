@@ -1,10 +1,11 @@
-/** GPS poll cadence. Visibility-resume and Refresh now still request immediately. */
-export const LOCATION_POLL_MS = 60_000;
 /**
- * Tesla has no watchPosition. 4s getCurrentPosition keeps track heading and
- * range rings alive; polls may await a ≤3s cached reading instead of a new lock.
+ * Lean path only: poll getCurrentPosition. Never watchPosition.
+ * 4s keeps track heading and range rings alive; polls may await a ≤3s
+ * cached reading instead of a new lock.
  */
-export const TESLA_LOCATION_POLL_MS = 4_000;
+export const LOCATION_POLL_MS = 4_000;
+/** @deprecated Use LOCATION_POLL_MS — the lean poll is the only cadence. */
+export const TESLA_LOCATION_POLL_MS = LOCATION_POLL_MS;
 /** Always request a fresh fix so a 1-minute poll is not served a stale 30s+ reading. */
 export const GEO_MAXIMUM_AGE_MS = 0;
 /**
@@ -16,9 +17,18 @@ export const GEO_TESLA_MAXIMUM_AGE_MS = 3_000;
 /** watchPosition may reuse a ~1s reading so follow camera can tick without a new GPS lock every time. */
 export const GEO_WATCH_MAXIMUM_AGE_MS = 1_000;
 export const GEO_TIMEOUT_MS = 15_000;
-/** Modest GPS hops ease; larger teleports / first lock jump. */
-export const FOLLOW_EASE_MS = 400;
+/** Modest GPS hops and teleports both jump (no easeTo). */
 export const FOLLOW_JUMP_METERS = 500;
+/** Follow jumpTo at most 0.5 Hz so highway GPS cannot spin WebGL every fix. */
+export const FOLLOW_JUMP_MIN_MS = 2_000;
+/** Rotate heading-up only when course changes this much (or the jump interval elapses). */
+export const FOLLOW_BEARING_MIN_DEG = 6;
+/** Persist last GPS at most this often — 1 Hz JSON.stringify OOMs Qt Chromium. */
+export const GPS_SAVE_MIN_MS = 20_000;
+export const MAP_PIXEL_RATIO = 1;
+export const MAP_TILE_CACHE_SIZE = 8;
+export const MAP_TILE_CACHE_ZOOM_LEVELS = 1;
+export const MAP_MAX_CANVAS_SIZE: [number, number] = [2048, 2048];
 /** Tesla touch jitter / accidental contact below this does not turn Follow off. */
 export const USER_PAN_MIN_PX = 16;
 /** Rolling window for ownship track heading. */
@@ -50,7 +60,13 @@ export const TRACK_MIN_SPEED_MPS = 0.75;
 export const TRACK_MAX_SPEED_MPS = 70;
 export const RANGE_RING_5_MS = 5 * 60 * 1000;
 export const RANGE_RING_30_MS = 30 * 60 * 1000;
-export const RADAR_REFRESH_MS = 2 * 60 * 1000;
+/** Catalog refresh while the tab is visible. Hidden tabs skip the tick. */
+export const RADAR_REFRESH_MS = 8 * 60 * 1000;
+/** Fraction of a mercator tile — wide enough that highway hops reuse the PNG. */
+export const RADAR_ANCHOR_SLOP = 0.5;
+/** Decoded RainViewer bitmaps. Latest-frame (paused) keeps only the playhead. */
+export const RADAR_IMAGE_CACHE_LIMIT = 1;
+export const RADAR_IMAGE_CACHE_LIMIT_ANIMATED = 3;
 export const LOCATION_STORAGE_KEY = "teslaradar:last-gps";
 export const PREFS_STORAGE_KEY = "teslaradar:prefs";
 /** v2: cold loads follow; older blobs with followMe:false from a pan are migrated once. */

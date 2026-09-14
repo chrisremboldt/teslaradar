@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import type { Map as MapLibreMap } from "maplibre-gl";
-import { RADAR_LAYER_OPACITY, TESLA_OVERLAY_MIN_DRAW_MS } from "@/lib/constants";
+import { RADAR_ANCHOR_SLOP, RADAR_LAYER_OPACITY, TESLA_OVERLAY_MIN_DRAW_MS } from "@/lib/constants";
 import {
   shouldDrawRadarOverlay,
   type OverlayDrawReason,
@@ -21,7 +21,6 @@ import {
   type RadarImageAnchor,
 } from "@/lib/rainviewer";
 import {
-  isTeslaBrowser,
   overlayPixelRatioForBrowser,
   radarImageCacheLimitForBrowser,
   radarPreloadRadius,
@@ -33,6 +32,7 @@ type RadarOverlayProps = {
   host: string | null;
   frames: RadarFrame[];
   frameIndex: number;
+  animate?: boolean;
 };
 
 type OverlayApi = {
@@ -52,11 +52,17 @@ function loadImage(url: string): Promise<HTMLImageElement> {
  * Canvas RainViewer overlay. Frames are preloaded as `<img>` and painted on a
  * timer — never through MapLibre raster sources (unreliable on Tesla Chromium).
  *
- * Tesla: hard-capped image cache (playhead ±1), src="" on eviction, no `move`
- * listener (settle / frame / resize only) so a 1920×1200 2D canvas does not
- * redraw on every follow jumpTo.
+ * Lean path: hard-capped image cache (latest frame, or playhead ±1 if Play),
+ * src="" on eviction, no `move` listener (settle / frame / resize only) so a
+ * 1920×1200 2D canvas does not redraw on every follow jumpTo.
  */
-export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProps) {
+export function RadarOverlay({
+  map,
+  host,
+  frames,
+  frameIndex,
+  animate = false,
+}: RadarOverlayProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const imagesRef = useRef<Map<string, HTMLImageElement>>(new Map());
   const anchorRef = useRef<RadarImageAnchor | null>(null);
@@ -65,13 +71,15 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
   const frameIndexRef = useRef(frameIndex);
   const apiRef = useRef<OverlayApi | null>(null);
   const lastDrawAtRef = useRef<number | null>(null);
+  const animateRef = useRef(animate);
 
   useEffect(() => {
     hostRef.current = host;
     framesRef.current = frames;
     frameIndexRef.current = frameIndex;
+    animateRef.current = animate;
     apiRef.current?.sync("frame");
-  }, [frameIndex, frames, host]);
+  }, [animate, frameIndex, frames, host]);
 
   useEffect(() => {
     const canvas = document.createElement("canvas");
@@ -91,9 +99,8 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
     const images = imagesRef.current;
     let loadGen = 0;
     let raf = 0;
-    const tesla = isTeslaBrowser();
-    const pixelRatio = overlayPixelRatioForBrowser(tesla, window.devicePixelRatio || 1);
-    const cacheLimit = radarImageCacheLimitForBrowser(tesla);
+    const pixelRatio = overlayPixelRatioForBrowser();
+    const cacheLimitFor = () => radarImageCacheLimitForBrowser(true, animateRef.current);
     const ctx = canvas.getContext("2d");
     canvas.dataset.pixelRatio = String(pixelRatio);
     canvas.dataset.radarCacheSize = "0";
@@ -112,7 +119,7 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
       const subset = radarFramesToPreload(
         framesRef.current,
         frameIndexRef.current,
-        radarPreloadRadius(tesla),
+        radarPreloadRadius(true, animateRef.current),
       );
       return new Set(subset.map((frame) => radarImageUrl(activeHost, frame.path, anchor)));
     };
@@ -121,7 +128,7 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
       const now = performance.now();
       if (
         !shouldDrawRadarOverlay({
-          tesla,
+          tesla: true,
           reason,
           lastDrawAt: lastDrawAtRef.current,
           now,
@@ -176,7 +183,7 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
     };
 
     const schedule = (reason: OverlayDrawReason) => {
-      if (reason === "move" && tesla) {
+      if (reason === "move") {
         paint("move");
         return;
       }
@@ -211,7 +218,7 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
         return frame ? radarImageUrl(activeHost, frame.path, next) : "";
       })();
       evictRadarImages(images, wanted);
-      capRadarImageCache(images, cacheLimit, wanted);
+      capRadarImageCache(images, cacheLimitFor(), wanted);
       canvas.dataset.radarCacheSize = String(images.size);
       const ordered = [...wanted].sort((a, b) => {
         if (a === current) return -1;
@@ -227,7 +234,7 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
               return;
             }
             images.set(url, image);
-            capRadarImageCache(images, cacheLimit, wanted);
+            capRadarImageCache(images, cacheLimitFor(), wanted);
             canvas.dataset.radarCacheSize = String(images.size);
             schedule("preload");
           })
@@ -245,7 +252,7 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
         return;
       }
       const prev = anchorRef.current;
-      const keepImage = !force && prev && radarAnchorStillCovers(prev, next);
+      const keepImage = !force && prev && radarAnchorStillCovers(prev, next, RADAR_ANCHOR_SLOP);
       if (!keepImage) {
         anchorRef.current = next;
         preload(next);
@@ -259,13 +266,9 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
     };
     apiRef.current = { sync };
 
-    const onMove = () => schedule("move");
     const onIdle = () => applyAnchor(false, "settle");
     const onResize = () => applyAnchor(false, "resize");
 
-    // Tesla: skip the high-frequency `move` stream (follow jumpTo + GL).
-    // Phone keeps it so easeTo stays glued to the radar image.
-    if (!tesla) map.on("move", onMove);
     map.on("resize", onResize);
     map.on("moveend", onIdle);
     map.on("zoomend", onIdle);
@@ -288,7 +291,6 @@ export function RadarOverlay({ map, host, frames, frameIndex }: RadarOverlayProp
       if (raf) window.cancelAnimationFrame(raf);
       observer?.disconnect();
       document.removeEventListener("visibilitychange", onVisibility);
-      if (!tesla) map.off("move", onMove);
       map.off("resize", onResize);
       map.off("moveend", onIdle);
       map.off("zoomend", onIdle);

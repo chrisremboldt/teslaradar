@@ -29,11 +29,11 @@ async function seedPrefs(page: Page, followMe: boolean) {
   }, followMe);
 }
 
-async function installWatchGeo(page: Page, first: MockFix) {
+async function installPollGeo(page: Page, first: MockFix) {
   await page.addInitScript((seed) => {
     type Fix = { lat: number; lon: number; timestamp: number; accuracy?: number };
     let current: Fix = seed;
-    const watchers = new Set<(position: GeolocationPosition) => void>();
+    let watchCalls = 0;
 
     const toPosition = (fix: Fix): GeolocationPosition =>
       ({
@@ -53,21 +53,17 @@ async function installWatchGeo(page: Page, first: MockFix) {
       window as unknown as { __pushGeo: (fix: Fix) => void }
     ).__pushGeo = (fix) => {
       current = fix;
-      const position = toPosition(fix);
-      for (const watcher of watchers) watcher(position);
     };
+    (window as unknown as { __watchCalls: () => number }).__watchCalls = () => watchCalls;
 
     navigator.geolocation.getCurrentPosition = (success) => {
       success(toPosition(current));
     };
-    navigator.geolocation.watchPosition = (success) => {
-      watchers.add(success);
-      success(toPosition(current));
+    navigator.geolocation.watchPosition = () => {
+      watchCalls += 1;
       return 1;
     };
-    navigator.geolocation.clearWatch = () => {
-      watchers.clear();
-    };
+    navigator.geolocation.clearWatch = () => undefined;
   }, first);
 }
 
@@ -79,11 +75,15 @@ async function openRadar(page: Page, followMe: boolean, first?: MockFix) {
     accuracy: 10,
   };
   await seedPrefs(page, followMe);
-  await installWatchGeo(page, seed);
+  await installPollGeo(page, seed);
   await page.goto("/");
   await expect(page.locator("[data-map-root][data-map-center-lat]")).toBeVisible({
     timeout: 25_000,
   });
+  const watchCalls = await page.evaluate(
+    () => (window as unknown as { __watchCalls?: () => number }).__watchCalls?.() ?? -1,
+  );
+  expect(watchCalls).toBe(0);
   await expect(page.locator(".tesla-location-marker")).toBeVisible();
   await page.waitForFunction(() => Boolean(window.__TESLARADAR_MAP__));
   await page.evaluate(() => {

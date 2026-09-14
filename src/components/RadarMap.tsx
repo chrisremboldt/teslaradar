@@ -2,13 +2,14 @@
 
 import { useEffect, useRef, useState } from "react";
 import { GeoJSONSource, Map as MapLibreMap, Marker } from "maplibre-gl";
-import type { EaseToOptions, JumpToOptions } from "maplibre-gl";
+import type { JumpToOptions } from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import { RadarOverlay } from "@/components/RadarOverlay";
 import { RangeRingsOverlay } from "@/components/RangeRingsOverlay";
 import {
-  FOLLOW_EASE_MS,
+  FOLLOW_BEARING_MIN_DEG,
   FOLLOW_JUMP_METERS,
+  FOLLOW_JUMP_MIN_MS,
   MAP_DEFAULT_ZOOM,
   MAP_MAX_ZOOM,
   MAP_MIN_ZOOM,
@@ -16,16 +17,21 @@ import {
   OSM_RASTER_TILES,
   USER_PAN_MIN_PX,
 } from "@/lib/constants";
-import { isCameraOnTarget, planFollowCamera, shouldTreatAsUserPan } from "@/lib/follow-camera";
+import {
+  isCameraOnTarget,
+  planFollowCamera,
+  shouldApplyFollowJump,
+  shouldTreatAsUserPan,
+  shortestBearingDelta,
+} from "@/lib/follow-camera";
 import { isSubpixelCameraHop } from "@/lib/overlay-draw";
 import { normalizeHeading } from "@/lib/format";
 import { accuracyCircle, emptyCollection, ringLabelLngLat } from "@/lib/geo";
 import {
-  isTeslaBrowser,
   mapMaxCanvasSize,
   mapMaxTileCacheSize,
+  mapMaxTileCacheZoomLevels,
   mapPixelRatioForBrowser,
-  preferJumpFollow,
 } from "@/lib/tesla-browser";
 import type { RadarFrame } from "@/lib/types";
 
@@ -43,10 +49,11 @@ type RadarMapProps = {
   accuracy: number | null;
   /** GPS track heading for the ownship chevron. Null = no-heading look. */
   heading: number | null;
-  /** Compass (or track fallback) used to rotate the map in heading-up. */
+  /** Track heading used to rotate the map in heading-up. */
   mapHeading?: number | null;
   followMe: boolean;
   headingUp: boolean;
+  animateRadar?: boolean;
   radarHost: string | null;
   radarFrames: RadarFrame[];
   radarFrameIndex: number;
@@ -107,6 +114,7 @@ export function RadarMap({
   mapHeading = heading,
   followMe,
   headingUp,
+  animateRadar = false,
   radarHost,
   radarFrames,
   radarFrameIndex,
@@ -126,7 +134,19 @@ export function RadarMap({
   const followMeRef = useRef(followMe);
   const hasFollowLockedRef = useRef(false);
   const lastOwnshipRef = useRef({ lat, lon });
-  const tesla = isTeslaBrowser();
+  const followApplyAtRef = useRef<number | null>(null);
+  const followTimerRef = useRef(0);
+  const latestRef = useRef({
+    lat,
+    lon,
+    accuracy,
+    heading,
+    mapHeading,
+    followMe,
+    headingUp,
+    range5m,
+    range30m,
+  });
   const [map, setMap] = useState<MapLibreMap | null>(null);
   const [mapError, setMapError] = useState<string | null>(null);
   const [zoom, setZoom] = useState(MAP_DEFAULT_ZOOM);
@@ -138,8 +158,7 @@ export function RadarMap({
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
 
-    const constrained = isTeslaBrowser();
-    const pixelRatio = mapPixelRatioForBrowser(constrained, window.devicePixelRatio || 1);
+    const pixelRatio = mapPixelRatioForBrowser();
     let mapInstance: MapLibreMap;
     try {
       mapInstance = new MapLibreMap({
@@ -176,22 +195,18 @@ export function RadarMap({
         fadeDuration: 0,
         validateStyle: false,
         pixelRatio,
-        ...(constrained
-          ? {
-              maxPitch: 0,
-              pitchWithRotate: false,
-              renderWorldCopies: false,
-              refreshExpiredTiles: false,
-              maxTileCacheSize: mapMaxTileCacheSize(true),
-              maxTileCacheZoomLevels: 2,
-              maxCanvasSize: mapMaxCanvasSize(true),
-            }
-          : {}),
+        maxPitch: 0,
+        pitchWithRotate: false,
+        renderWorldCopies: false,
+        refreshExpiredTiles: false,
+        maxTileCacheSize: mapMaxTileCacheSize(),
+        maxTileCacheZoomLevels: mapMaxTileCacheZoomLevels(),
+        maxCanvasSize: mapMaxCanvasSize(),
         canvasContextAttributes: {
           antialias: false,
           failIfMajorPerformanceCaveat: false,
           preserveDrawingBuffer: false,
-          powerPreference: constrained ? "low-power" : "default",
+          powerPreference: "low-power",
         },
       });
     } catch {
@@ -260,18 +275,12 @@ export function RadarMap({
 
     let publishRaf = 0;
     const publish = () => {
-      if (constrained) {
-        if (publishRaf) return;
-        publishRaf = window.requestAnimationFrame(() => {
-          publishRaf = 0;
-          publishFollowState(rootRef.current, mapInstance, markerRef.current);
-        });
-        return;
-      }
-      publishFollowState(rootRef.current, mapInstance, markerRef.current);
+      if (publishRaf) return;
+      publishRaf = window.requestAnimationFrame(() => {
+        publishRaf = 0;
+        publishFollowState(rootRef.current, mapInstance, markerRef.current);
+      });
     };
-    // Tesla: settle only. Phone keeps `move` so e2e / follow HUD stay live mid-ease.
-    if (!constrained) mapInstance.on("move", publish);
     mapInstance.on("moveend", publish);
 
     let dragStartLngLat: { lat: number; lng: number } | null = null;
@@ -332,48 +341,61 @@ export function RadarMap({
     const marker = markerRef.current;
     if (!current || !marker) return;
 
-    marker.setLngLat([lon, lat]);
-    const hasTrackHeading = heading != null;
-    const rotateHeading = headingUp ? (mapHeading ?? heading) : null;
-    const markerRotation = !hasTrackHeading
-      ? 0
-      : headingUp && rotateHeading != null
-        ? normalizeHeading(heading - rotateHeading)
-        : heading;
-    marker.setRotation(markerRotation);
-    const markerEl = marker.getElement();
-    markerEl.classList.toggle("has-heading", hasTrackHeading);
-    if (hasTrackHeading) {
-      markerEl.dataset.trackHeading = String(Math.round(heading));
-    } else {
-      delete markerEl.dataset.trackHeading;
-    }
+    latestRef.current = {
+      lat,
+      lon,
+      accuracy,
+      heading,
+      mapHeading,
+      followMe,
+      headingUp,
+      range5m,
+      range30m,
+    };
 
-    if (label5Ref.current) placeRangeLabel(label5Ref.current, lon, lat, range5m);
-    if (label30Ref.current) placeRangeLabel(label30Ref.current, lon, lat, range30m);
+    const applyMarkerAndCamera = (forceCamera: boolean) => {
+      const snap = latestRef.current;
+      marker.setLngLat([snap.lon, snap.lat]);
+      const headingDeg = snap.heading;
+      const hasTrackHeading = headingDeg != null;
+      const rotateHeading = snap.headingUp ? (snap.mapHeading ?? headingDeg) : null;
+      const markerRotation =
+        headingDeg == null
+          ? 0
+          : snap.headingUp && rotateHeading != null
+            ? normalizeHeading(headingDeg - rotateHeading)
+            : headingDeg;
+      marker.setRotation(markerRotation);
+      const markerEl = marker.getElement();
+      markerEl.classList.toggle("has-heading", hasTrackHeading);
+      if (headingDeg != null) {
+        markerEl.dataset.trackHeading = String(Math.round(headingDeg));
+      } else {
+        delete markerEl.dataset.trackHeading;
+      }
 
-    const apply = () => {
-      applyAccuracy(current, lon, lat, accuracy);
-      if (label5Ref.current) placeRangeLabel(label5Ref.current, lon, lat, range5m);
-      if (label30Ref.current) placeRangeLabel(label30Ref.current, lon, lat, range30m);
-      const nextBearing = headingUp && rotateHeading != null ? rotateHeading : 0;
+      if (label5Ref.current) placeRangeLabel(label5Ref.current, snap.lon, snap.lat, snap.range5m);
+      if (label30Ref.current) placeRangeLabel(label30Ref.current, snap.lon, snap.lat, snap.range30m);
+
+      applyAccuracy(current, snap.lon, snap.lat, snap.accuracy);
+      const nextBearing = snap.headingUp && rotateHeading != null ? rotateHeading : 0;
       const mapCenter = current.getCenter();
-      const followJustEnabled = followMe && !followMeRef.current;
-      const firstLock = followMe && !hasFollowLockedRef.current;
+      const followJustEnabled = snap.followMe && !followMeRef.current;
+      const firstLock = snap.followMe && !hasFollowLockedRef.current;
       const positionChanged =
-        lastOwnshipRef.current.lat !== lat || lastOwnshipRef.current.lon !== lon;
+        lastOwnshipRef.current.lat !== snap.lat || lastOwnshipRef.current.lon !== snap.lon;
       const plan = planFollowCamera({
-        followMe,
-        ownship: { lat, lon },
+        followMe: snap.followMe,
+        ownship: { lat: snap.lat, lon: snap.lon },
         mapCenter: { lat: mapCenter.lat, lon: mapCenter.lng },
         bearing: nextBearing,
         firstLock,
         positionChanged,
         followJustEnabled,
         jumpMeters: FOLLOW_JUMP_METERS,
-        preferJump: preferJumpFollow(isTeslaBrowser()),
+        preferJump: true,
       });
-      const camera: JumpToOptions & EaseToOptions = { bearing: plan.bearing };
+      const camera: JumpToOptions = { bearing: plan.bearing };
       if (plan.center) camera.center = plan.center;
 
       const alreadyThere = isCameraOnTarget({
@@ -381,9 +403,7 @@ export function RadarMap({
         mapBearing: current.getBearing(),
         plan,
       });
-      const teslaJump = preferJumpFollow(isTeslaBrowser());
       const skipSubpixel =
-        teslaJump &&
         !firstLock &&
         !followJustEnabled &&
         plan.center != null &&
@@ -391,7 +411,27 @@ export function RadarMap({
           current.project([mapCenter.lng, mapCenter.lat]),
           current.project(plan.center),
         );
-      if (!alreadyThere && !skipSubpixel) {
+      const now = performance.now();
+      const allowCamera = shouldApplyFollowJump({
+        now,
+        lastApplyAt: followApplyAtRef.current,
+        firstLock,
+        followJustEnabled,
+        positionChanged,
+        bearingDeltaDeg: shortestBearingDelta(current.getBearing(), nextBearing),
+        minIntervalMs: FOLLOW_JUMP_MIN_MS,
+        minBearingDeg: FOLLOW_BEARING_MIN_DEG,
+        force: forceCamera,
+      });
+
+      if (!allowCamera) {
+        if (followTimerRef.current) window.clearTimeout(followTimerRef.current);
+        const elapsed = followApplyAtRef.current == null ? FOLLOW_JUMP_MIN_MS : now - followApplyAtRef.current;
+        followTimerRef.current = window.setTimeout(() => {
+          followTimerRef.current = 0;
+          applyMarkerAndCamera(true);
+        }, Math.max(0, FOLLOW_JUMP_MIN_MS - elapsed));
+      } else if (!alreadyThere && !skipSubpixel) {
         const gen = programmaticGenRef.current + 1;
         programmaticGenRef.current = gen;
         programmaticMoveRef.current = true;
@@ -399,41 +439,38 @@ export function RadarMap({
           if (programmaticGenRef.current === gen) programmaticMoveRef.current = false;
         };
         current.once("moveend", clearProgrammatic);
-        window.setTimeout(clearProgrammatic, (plan.mode === "ease" ? FOLLOW_EASE_MS : 0) + 80);
-
-        if (plan.mode === "ease") {
-          current.stop();
-          current.easeTo({ ...camera, duration: FOLLOW_EASE_MS, essential: true });
-        } else {
-          current.jumpTo(camera);
-        }
+        window.setTimeout(clearProgrammatic, 80);
+        current.jumpTo(camera);
+        followApplyAtRef.current = now;
+      } else {
+        followApplyAtRef.current = now;
       }
 
-      followMeRef.current = followMe;
-      lastOwnshipRef.current = { lat, lon };
-      if (followMe) hasFollowLockedRef.current = true;
+      followMeRef.current = snap.followMe;
+      lastOwnshipRef.current = { lat: snap.lat, lon: snap.lon };
+      if (snap.followMe) hasFollowLockedRef.current = true;
       publishFollowState(rootRef.current, current, marker);
     };
 
-    // Do not gate on isStyleLoaded() — it goes false while OSM tiles or the
-    // accuracy source are loading, which skipped jumpTo/easeTo and left the
-    // chevron walking up a stuck map. Marker updates above always ran.
-    apply();
+    applyMarkerAndCamera(false);
+    return () => {
+      if (followTimerRef.current) {
+        window.clearTimeout(followTimerRef.current);
+        followTimerRef.current = 0;
+      }
+    };
   }, [accuracy, followMe, heading, headingUp, lat, lon, map, mapHeading, range5m, range30m]);
 
   useEffect(() => {
     if (!map) return;
     const syncZoom = () => setZoom(map.getZoom());
     syncZoom();
-    if (!tesla) map.on("zoom", syncZoom);
     map.on("zoomend", syncZoom);
     return () => {
-      if (!tesla) map.off("zoom", syncZoom);
       map.off("zoomend", syncZoom);
     };
-  }, [map, tesla]);
+  }, [map]);
 
-  const zoomDuration = tesla ? 0 : 200;
   const atMinZoom = zoom <= MAP_MIN_ZOOM + 0.01;
   const atMaxZoom = zoom >= MAP_MAX_ZOOM - 0.01;
 
@@ -445,12 +482,14 @@ export function RadarMap({
       className="relative h-full w-full"
       data-map-root="true"
       data-follow-camera={followMe ? "on" : "off"}
-      data-tesla-browser={tesla ? "on" : "off"}
-      data-map-pixel-ratio={String(
-        mapPixelRatioForBrowser(tesla, typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1),
-      )}
+      data-tesla-browser="on"
+      data-lean-runtime="on"
+      data-map-pixel-ratio={String(mapPixelRatioForBrowser())}
+      data-tile-cache={String(mapMaxTileCacheSize())}
+      data-follow-jump-ms={String(FOLLOW_JUMP_MIN_MS)}
       data-radar-index={frame ? String(radarFrameIndex) : ""}
       data-radar-path={frame?.path ?? ""}
+      data-animate-radar={animateRadar ? "on" : "off"}
     >
       <div ref={containerRef} className="radar-map h-full w-full" />
       {mapError ? (
@@ -464,6 +503,7 @@ export function RadarMap({
           host={radarHost}
           frames={radarFrames}
           frameIndex={radarFrameIndex}
+          animate={animateRadar}
         />
       ) : null}
       {map ? (
@@ -482,7 +522,7 @@ export function RadarMap({
             className="map-zoom-btn"
             aria-label="Zoom in"
             disabled={atMaxZoom}
-            onClick={() => map.zoomIn({ duration: zoomDuration })}
+            onClick={() => map.zoomIn({ duration: 0 })}
           >
             +
           </button>
@@ -491,7 +531,7 @@ export function RadarMap({
             className="map-zoom-btn"
             aria-label="Zoom out"
             disabled={atMinZoom}
-            onClick={() => map.zoomOut({ duration: zoomDuration })}
+            onClick={() => map.zoomOut({ duration: 0 })}
           >
             −
           </button>

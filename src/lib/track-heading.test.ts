@@ -36,8 +36,8 @@ function northOf(lat: number, meters: number): number {
   return lat + meters / 110_540;
 }
 
-test("LOCATION_POLL_MS is 1 minute", () => {
-  assert.equal(LOCATION_POLL_MS, 60_000);
+test("LOCATION_POLL_MS is the lean 4s poll", () => {
+  assert.equal(LOCATION_POLL_MS, 4_000);
 });
 
 test("GEO_MAXIMUM_AGE_MS is tighter than a stale 30s+ fix", () => {

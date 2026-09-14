@@ -40,7 +40,7 @@ body {
   letter-spacing: 0.01em;
   color: #e4e4e7;
   white-space: nowrap;
-  backdrop-filter: blur(12px);
+  backdrop-filter: none;
 }
 
 @media (min-width: 640px) {
