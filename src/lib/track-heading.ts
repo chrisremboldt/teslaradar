@@ -402,17 +402,14 @@ export function decideOwnshipMotion(input: {
 
   let evidenceSpeed: number | null = null;
   let wantMoving = false;
+  const trackGo = trackSpeed != null && trackSpeed >= minSpeedMps;
   if (nativeSpeed != null) {
     evidenceSpeed = nativeSpeed;
     wantMoving = nativeSpeed >= minSpeedMps;
   } else {
     evidenceSpeed = windowSpeed ?? trackSpeed;
-    const netOk = metrics.netM >= netMoveM;
-    wantMoving = evidenceSpeed != null && evidenceSpeed >= minSpeedMps && netOk;
-    if (!wantMoving && windowSpeed != null && metrics.netM >= netMoveM) {
-      wantMoving = true;
-      evidenceSpeed = windowSpeed;
-    }
+    const windowGo = windowSpeed != null && metrics.netM >= netMoveM;
+    wantMoving = windowGo || trackGo;
   }
 
   const prior: MotionHysteresis = input.hysteresis ?? {
@@ -432,6 +429,7 @@ export function decideOwnshipMotion(input: {
     if (!prior.moving) {
       const clearGo =
         (nativeSpeed != null && nativeSpeed >= minSpeedMps) ||
+        trackGo ||
         (evidenceSpeed != null && evidenceSpeed >= 2.5 && metrics.netM >= 20);
       if (clearGo) {
         moving = true;

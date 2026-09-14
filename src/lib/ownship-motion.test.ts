@@ -85,6 +85,22 @@ test("native heading fills the chevron when track heading is absent", () => {
   assert.equal(decision.heading, 247);
 });
 
+test("1 km/min hops still move when the 24s window holds only the last point", () => {
+  const t0 = 1_700_000_000_000;
+  const points = [0, 1000, 2000, 3000, 4000].map((meters, i) =>
+    point(LAT, eastOf(LAT, LON, meters), t0 + i * 60_000),
+  );
+  const decision = decideOwnshipMotion({
+    now: t0 + 4 * 60_000,
+    nativeSpeedMps: null,
+    nativeCourseDeg: null,
+    points,
+  });
+  assert.equal(decision.moving, true);
+  assert.ok(decision.range5m != null && decision.range5m > 4_000);
+  assert.ok(decision.range30m != null && decision.range30m > 24_000);
+});
+
 test("null native speed falls back to track / window motion", () => {
   const t0 = 1_700_000_000_000;
   const points = [0, 1000, 2000, 3000].map((meters, i) =>
