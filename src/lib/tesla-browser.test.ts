@@ -9,6 +9,7 @@ import {
   mapPixelRatioForBrowser,
   overlayPixelRatioForBrowser,
   preferJumpFollow,
+  radarImageCacheLimitForBrowser,
   radarPreloadRadius,
   shouldWatchGeolocation,
   teslaQueryEnabled,
@@ -55,6 +56,8 @@ test("Tesla profile is poll-only, jump-only, and 1× pixels", () => {
   assert.equal(overlayPixelRatioForBrowser(true, 2), 1);
   assert.equal(radarPreloadRadius(true), 1);
   assert.equal(radarPreloadRadius(false), Number.POSITIVE_INFINITY);
+  assert.equal(radarImageCacheLimitForBrowser(true), 3);
+  assert.equal(radarImageCacheLimitForBrowser(false), 16);
   assert.equal(mapMaxTileCacheSize(true), 24);
   assert.equal(mapMaxTileCacheSize(false), undefined);
   assert.deepEqual(mapMaxCanvasSize(true), [2048, 2048]);

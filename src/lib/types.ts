@@ -7,6 +7,10 @@ export type GeoFix = {
   timestamp: number;
   source: LocationSource;
   demoLabel?: string;
+  /** GeolocationCoordinates.speed (m/s). Null when the stack omits it or reports < 0. */
+  speedMps?: number | null;
+  /** GeolocationCoordinates.heading (deg). Null when missing / NaN / < 0. */
+  courseDeg?: number | null;
 };
 
 export type LocationErrorKind = "denied" | "unavailable" | "timeout" | "unsupported";

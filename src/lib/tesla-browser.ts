@@ -59,6 +59,12 @@ export function radarPreloadRadius(tesla: boolean): number {
   return tesla ? 1 : Number.POSITIVE_INFINITY;
 }
 
+/** Hard cap on decoded RainViewer bitmaps. Tesla never keeps the full catalog. */
+export function radarImageCacheLimitForBrowser(tesla: boolean): number {
+  if (!tesla) return 16;
+  return radarPreloadRadius(true) * 2 + 1;
+}
+
 export function mapMaxTileCacheSize(tesla: boolean): number | undefined {
   return tesla ? 24 : undefined;
 }

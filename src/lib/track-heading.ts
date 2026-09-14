@@ -7,6 +7,14 @@ const DEFAULT_MIN_SPEED_MPS = 0.75;
 const DEFAULT_MAX_SPEED_MPS = 70;
 const DEFAULT_RING_5_MS = 5 * 60 * 1000;
 const DEFAULT_RING_30_MS = 30 * 60 * 1000;
+const DEFAULT_MOTION_WINDOW_MS = 24_000;
+const DEFAULT_DEGRADED_ACCURACY_M = 500;
+const DEFAULT_HOLD_MOVING_MS = 4_000;
+const DEFAULT_HOLD_PARKED_MS = 1_500;
+const DEFAULT_NATIVE_STALE_MS = 15_000;
+const DEFAULT_NET_MOVE_M = 24;
+const DEFAULT_PARKED_NET_M = 12;
+const DEFAULT_EXIT_SPEED_MPS = 0.45;
 
 export type TrackPoint = {
   lat: number;
@@ -221,5 +229,261 @@ export function rangeRingRadii(
   return {
     range5m: rangeRingMeters(speedMps, fiveMs, minRadiusM),
     range30m: rangeRingMeters(speedMps, thirtyMs, minRadiusM),
+  };
+}
+
+export type MotionHysteresis = {
+  moving: boolean;
+  quietSince: number | null;
+  evidenceSince: number | null;
+  heldSpeedMps: number | null;
+};
+
+export type OwnshipDecision = {
+  moving: boolean;
+  speedMps: number | null;
+  heading: number | null;
+  range5m: number | null;
+  range30m: number | null;
+  hysteresis: MotionHysteresis;
+};
+
+export function readNativeSpeedMps(speed: unknown): number | null {
+  if (typeof speed !== "number" || !Number.isFinite(speed) || speed < 0) return null;
+  return speed;
+}
+
+export function readNativeCourseDeg(heading: unknown): number | null {
+  if (typeof heading !== "number" || !Number.isFinite(heading) || heading < 0) return null;
+  return ((heading % 360) + 360) % 360;
+}
+
+export type TrackWindowMetrics = {
+  pathM: number;
+  netM: number;
+  dtMs: number;
+  count: number;
+  bearing: number | null;
+};
+
+/**
+ * Path + net displacement over a short window. A single awful accuracy
+ * reading is dropped when other good points remain; if the recent window
+ * would otherwise be empty, degraded points are kept so one spike cannot
+ * starve rings.
+ */
+export function trackWindowMetrics(
+  points: TrackPoint[],
+  now: number,
+  options?: TrackFilterOptions & {
+    motionWindowMs?: number;
+    degradedAccuracyM?: number;
+  },
+): TrackWindowMetrics {
+  const windowMs = options?.motionWindowMs ?? DEFAULT_MOTION_WINDOW_MS;
+  const maxAccuracyM = options?.maxAccuracyM ?? DEFAULT_MAX_ACCURACY_M;
+  const degradedAccuracyM = options?.degradedAccuracyM ?? DEFAULT_DEGRADED_ACCURACY_M;
+  const maxSpeedMps = options?.maxSpeedMps ?? DEFAULT_MAX_SPEED_MPS;
+  const recent = pruneTrack(points, now, windowMs);
+  const good = recent.filter(
+    (point) => point.accuracy == null || point.accuracy <= maxAccuracyM,
+  );
+  const usable =
+    good.length >= 2
+      ? good
+      : recent.filter(
+          (point) => point.accuracy == null || point.accuracy <= degradedAccuracyM,
+        );
+
+  const empty: TrackWindowMetrics = { pathM: 0, netM: 0, dtMs: 0, count: usable.length, bearing: null };
+  if (usable.length < 2) return empty;
+
+  let pathM = 0;
+  let dtMs = 0;
+  for (let i = 1; i < usable.length; i += 1) {
+    const dist = haversineMeters(usable[i - 1], usable[i]);
+    const hopDt = usable[i].timestamp - usable[i - 1].timestamp;
+    if (hopDt <= 0) continue;
+    const speed = dist / (hopDt / 1000);
+    if (speed > maxSpeedMps) continue;
+    pathM += dist;
+    dtMs += hopDt;
+  }
+
+  const first = usable[0];
+  const last = usable[usable.length - 1];
+  const netM = haversineMeters(first, last);
+  const spanMs = last.timestamp - first.timestamp;
+  const bearing = netM >= 8 ? initialBearingDegrees(first, last) : null;
+  return { pathM, netM, dtMs: spanMs > 0 ? spanMs : dtMs, count: usable.length, bearing };
+}
+
+export function derivedWindowSpeedMps(
+  metrics: TrackWindowMetrics,
+  minSpeedMps = DEFAULT_MIN_SPEED_MPS,
+  parkedNetM = DEFAULT_PARKED_NET_M,
+): number | null {
+  if (metrics.dtMs <= 0 || metrics.netM < parkedNetM) return null;
+  if (metrics.pathM > 0 && metrics.netM / metrics.pathM < 0.35 && metrics.netM < 40) {
+    return null;
+  }
+  const speed = metrics.netM / (metrics.dtMs / 1000);
+  if (speed < minSpeedMps) return null;
+  return speed;
+}
+
+export function pickOwnshipHeading(input: {
+  trackHeading: number | null;
+  windowBearing: number | null;
+  nativeCourseDeg: number | null;
+  netM: number;
+  minNetM?: number;
+}): number | null {
+  const minNetM = input.minNetM ?? DEFAULT_NET_MOVE_M;
+  if (input.trackHeading != null) return input.trackHeading;
+  if (input.windowBearing != null && input.netM >= minNetM) return input.windowBearing;
+  return input.nativeCourseDeg;
+}
+
+/** Parked vs moving + rings + chevron. One function used by useOwnshipTrack. */
+export function decideOwnshipMotion(input: {
+  now: number;
+  fixTimestamp?: number;
+  nativeSpeedMps: number | null;
+  nativeCourseDeg: number | null;
+  points: TrackPoint[];
+  hysteresis?: MotionHysteresis | null;
+  options?: TrackFilterOptions & {
+    motionWindowMs?: number;
+    holdMovingMs?: number;
+    holdParkedMs?: number;
+    nativeStaleMs?: number;
+    netMoveM?: number;
+    parkedNetM?: number;
+    exitSpeedMps?: number;
+    fiveMs?: number;
+    thirtyMs?: number;
+  };
+}): OwnshipDecision {
+  const minSpeedMps = input.options?.minSpeedMps ?? DEFAULT_MIN_SPEED_MPS;
+  const holdMovingMs = input.options?.holdMovingMs ?? DEFAULT_HOLD_MOVING_MS;
+  const holdParkedMs = input.options?.holdParkedMs ?? DEFAULT_HOLD_PARKED_MS;
+  const nativeStaleMs = input.options?.nativeStaleMs ?? DEFAULT_NATIVE_STALE_MS;
+  const netMoveM = input.options?.netMoveM ?? DEFAULT_NET_MOVE_M;
+  const parkedNetM = input.options?.parkedNetM ?? DEFAULT_PARKED_NET_M;
+  const exitSpeedMps = input.options?.exitSpeedMps ?? DEFAULT_EXIT_SPEED_MPS;
+  const motionWindowMs = input.options?.motionWindowMs ?? DEFAULT_MOTION_WINDOW_MS;
+
+  const age = input.fixTimestamp != null ? input.now - input.fixTimestamp : 0;
+  const nativeFresh =
+    input.nativeSpeedMps != null && (input.fixTimestamp == null || age <= nativeStaleMs);
+  const nativeSpeed = nativeFresh ? input.nativeSpeedMps : null;
+  const nativeCourse =
+    input.nativeCourseDeg != null && (input.fixTimestamp == null || age <= nativeStaleMs)
+      ? input.nativeCourseDeg
+      : null;
+
+  const trackOptions: TrackFilterOptions = {
+    windowMs: input.options?.windowMs ?? DEFAULT_WINDOW_MS,
+    recentWindowMs: input.options?.recentWindowMs ?? DEFAULT_RECENT_WINDOW_MS,
+    minSegmentM: input.options?.minSegmentM ?? DEFAULT_MIN_SEGMENT_M,
+    maxAccuracyM: input.options?.maxAccuracyM ?? DEFAULT_MAX_ACCURACY_M,
+    minSpeedMps,
+    maxSpeedMps: input.options?.maxSpeedMps ?? DEFAULT_MAX_SPEED_MPS,
+  };
+
+  const trackHeading = averageTrackHeading(input.points, input.now, trackOptions);
+  const trackSpeed = recentTrackSpeedMps(input.points, input.now, trackOptions);
+  const metrics = trackWindowMetrics(input.points, input.now, {
+    ...trackOptions,
+    motionWindowMs,
+  });
+  const windowSpeed = derivedWindowSpeedMps(metrics, minSpeedMps, parkedNetM);
+
+  let evidenceSpeed: number | null = null;
+  let wantMoving = false;
+  const trackGo = trackSpeed != null && trackSpeed >= minSpeedMps;
+  if (nativeSpeed != null) {
+    evidenceSpeed = nativeSpeed;
+    wantMoving = nativeSpeed >= minSpeedMps;
+  } else {
+    evidenceSpeed = windowSpeed ?? trackSpeed;
+    const windowGo = windowSpeed != null && metrics.netM >= netMoveM;
+    wantMoving = windowGo || trackGo;
+  }
+
+  const prior: MotionHysteresis = input.hysteresis ?? {
+    moving: false,
+    quietSince: null,
+    evidenceSince: null,
+    heldSpeedMps: null,
+  };
+
+  let moving = prior.moving;
+  let quietSince = prior.quietSince;
+  let evidenceSince = prior.evidenceSince;
+  let heldSpeedMps = prior.heldSpeedMps;
+
+  if (wantMoving) {
+    quietSince = null;
+    if (!prior.moving) {
+      const clearGo =
+        (nativeSpeed != null && nativeSpeed >= minSpeedMps) ||
+        trackGo ||
+        (evidenceSpeed != null && evidenceSpeed >= 2.5 && metrics.netM >= 20);
+      if (clearGo) {
+        moving = true;
+        evidenceSince = null;
+      } else {
+        evidenceSince = evidenceSince ?? input.now;
+        if (input.now - evidenceSince >= holdParkedMs) {
+          moving = true;
+          evidenceSince = null;
+        }
+      }
+    } else {
+      moving = true;
+      evidenceSince = null;
+    }
+    if (evidenceSpeed != null && evidenceSpeed > 0) heldSpeedMps = evidenceSpeed;
+  } else {
+    evidenceSince = null;
+    const clearlyStopped = nativeSpeed != null ? nativeSpeed <= exitSpeedMps : true;
+    if (prior.moving && clearlyStopped) {
+      quietSince = quietSince ?? input.now;
+      if (input.now - quietSince >= holdMovingMs) {
+        moving = false;
+        quietSince = null;
+        heldSpeedMps = null;
+      }
+    } else if (!prior.moving) {
+      moving = false;
+      quietSince = null;
+    }
+  }
+
+  const liveSpeed =
+    evidenceSpeed != null && evidenceSpeed > 0 ? evidenceSpeed : heldSpeedMps;
+  const speedMps = moving ? liveSpeed : null;
+  const heading = pickOwnshipHeading({
+    trackHeading,
+    windowBearing: metrics.bearing,
+    nativeCourseDeg: nativeCourse,
+    netM: metrics.netM,
+    minNetM: netMoveM,
+  });
+  const rings = rangeRingRadii(speedMps, {
+    fiveMs: input.options?.fiveMs,
+    thirtyMs: input.options?.thirtyMs,
+    minRadiusM: DEFAULT_MIN_SEGMENT_M,
+  });
+
+  return {
+    moving,
+    speedMps,
+    heading,
+    range5m: rings.range5m,
+    range30m: rings.range30m,
+    hysteresis: { moving, quietSince, evidenceSince, heldSpeedMps },
   };
 }

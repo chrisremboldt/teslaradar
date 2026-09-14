@@ -47,6 +47,7 @@ export function useRainViewer(animate: boolean) {
       void reload();
     }, 0);
     const interval = window.setInterval(() => {
+      if (document.visibilityState !== "visible") return;
       void reload();
     }, RADAR_REFRESH_MS);
     return () => {
@@ -92,20 +93,34 @@ export function useRainViewer(animate: boolean) {
       elapsed = 0;
     };
 
-    document.addEventListener("visibilitychange", onVisibility);
-
-    // Tesla: one interval only. Phone/desktop keep rAF + a 250ms watchdog
-    // because split-view can freeze either timer by itself.
+    // Tesla: one interval only, paused while hidden. Phone/desktop keep rAF
+    // + a 250ms watchdog because split-view can freeze either timer by itself.
     if (isTeslaBrowser()) {
-      const interval = window.setInterval(() => {
-        pump(performance.now());
-      }, RADAR_FRAME_MS);
-      return () => {
+      let interval = 0;
+      const startPump = () => {
+        if (interval) return;
+        interval = window.setInterval(() => {
+          pump(performance.now());
+        }, RADAR_FRAME_MS);
+      };
+      const stopPump = () => {
         window.clearInterval(interval);
-        document.removeEventListener("visibilitychange", onVisibility);
+        interval = 0;
+      };
+      const onTeslaVisibility = () => {
+        onVisibility();
+        if (document.visibilityState === "visible") startPump();
+        else stopPump();
+      };
+      document.addEventListener("visibilitychange", onTeslaVisibility);
+      if (document.visibilityState === "visible") startPump();
+      return () => {
+        stopPump();
+        document.removeEventListener("visibilitychange", onTeslaVisibility);
       };
     }
 
+    document.addEventListener("visibilitychange", onVisibility);
     const loop = (ts: number) => {
       raf = window.requestAnimationFrame(loop);
       pump(ts);

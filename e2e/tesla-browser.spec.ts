@@ -120,6 +120,11 @@ test.describe("Tesla browser survival", () => {
       "1",
       { timeout: 25_000 },
     );
+    await expect
+      .poll(async () => Number(await page.locator(".radar-overlay-canvas").getAttribute("data-radar-cache-size")), {
+        timeout: 10_000,
+      })
+      .toBeLessThanOrEqual(3);
     const canvasMetrics = await page.evaluate(() => {
       const overlay = document.querySelector(".radar-overlay-canvas") as HTMLCanvasElement | null;
       const gl = document.querySelector(".radar-map .maplibregl-canvas") as HTMLCanvasElement | null;
