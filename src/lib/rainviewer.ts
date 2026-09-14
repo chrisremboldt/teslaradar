@@ -9,6 +9,7 @@ import {
 import type { RadarFrame, RainViewerCatalog } from "@/lib/types";
 
 export { radarAnchorStillCovers } from "@/lib/radar-anchor";
+export { mergeRainViewerCatalog, radarFramesToPreload } from "@/lib/radar-catalog";
 
 type RainViewerApiResponse = {
   version?: string;
@@ -76,23 +77,6 @@ export function radarImageAnchor(
     zoom: chooseRadarImageZoom(mapZoom, width, height),
     size: RADAR_IMAGE_SIZE,
   };
-}
-
-/** Playhead ± radius, wrapping. A non-finite radius means every frame. */
-export function radarFramesToPreload<T>(frames: T[], index: number, radius: number): T[] {
-  if (frames.length === 0) return [];
-  if (!Number.isFinite(radius) || radius >= frames.length) return frames;
-  const clamped = Math.max(0, Math.floor(radius));
-  const out: T[] = [];
-  const seen = new Set<number>();
-  for (let delta = -clamped; delta <= clamped; delta += 1) {
-    const i = ((index + delta) % frames.length + frames.length) % frames.length;
-    if (seen.has(i)) continue;
-    seen.add(i);
-    const frame = frames[i];
-    if (frame !== undefined) out.push(frame);
-  }
-  return out;
 }
 
 export function radarAnchorKey(host: string, anchor: RadarImageAnchor): string {

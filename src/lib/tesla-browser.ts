@@ -61,16 +61,19 @@ export function preferJumpFollow(tesla?: boolean): boolean {
   return true;
 }
 
-/** Neighbors on each side of the playhead. Paused = playhead only. */
+/**
+ * Paused = playhead only. Play = every current-catalog URL at this anchor
+ * (`Infinity` so `radarFramesToPreload` returns the full past loop).
+ */
 export function radarPreloadRadius(tesla?: boolean, animate = false): number {
   void tesla;
-  return animate ? 1 : 0;
+  return animate ? Number.POSITIVE_INFINITY : 0;
 }
 
-/** Hard cap on decoded RainViewer bitmaps. Paused = 1 (playhead). */
+/** Hard cap on decoded RainViewer bitmaps. Paused = 1; Play = full past loop. */
 export function radarImageCacheLimitForBrowser(tesla?: boolean, animate = false): number {
   void tesla;
-  return animate ? 3 : 1;
+  return animate ? 16 : 1;
 }
 
 export function mapMaxTileCacheSize(tesla?: boolean): number {

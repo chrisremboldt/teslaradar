@@ -12,6 +12,8 @@ import {
   RADAR_ANCHOR_SLOP,
   RADAR_IMAGE_CACHE_LIMIT,
   RADAR_IMAGE_CACHE_LIMIT_ANIMATED,
+  RADAR_PLAY_WARM_RADIUS,
+  RADAR_PLAY_WARM_TIMEOUT_MS,
   RADAR_REFRESH_MS,
   TESLA_LOCATION_POLL_MS,
 } from "./constants.ts";
@@ -55,11 +57,12 @@ test("constrained ⇒ no watch, jump only, 1× pixels, tiny tile cache", () => {
   assert.equal(mapPixelRatioForBrowser(true, 2), 1);
   assert.equal(overlayPixelRatioForBrowser(true, 2), 1);
   assert.equal(radarPreloadRadius(true, false), 0);
-  assert.equal(radarPreloadRadius(true, true), 1);
+  assert.equal(radarPreloadRadius(true, true), Number.POSITIVE_INFINITY);
   assert.equal(radarImageCacheLimitForBrowser(true, false), RADAR_IMAGE_CACHE_LIMIT);
   assert.equal(radarImageCacheLimitForBrowser(true, true), RADAR_IMAGE_CACHE_LIMIT_ANIMATED);
+  assert.ok(radarImageCacheLimitForBrowser(true, true) >= 10);
   assert.equal(radarImageCacheLimitForBrowser(false, false), 1);
-  assert.equal(radarImageCacheLimitForBrowser(false, true), 3);
+  assert.equal(radarImageCacheLimitForBrowser(false, true), RADAR_IMAGE_CACHE_LIMIT_ANIMATED);
   assert.equal(mapMaxTileCacheSize(), MAP_TILE_CACHE_SIZE);
   assert.equal(mapMaxTileCacheSize(false), 8);
   assert.equal(mapMaxTileCacheZoomLevels(), 1);
@@ -71,7 +74,10 @@ test("constrained ⇒ no watch, jump only, 1× pixels, tiny tile cache", () => {
   assert.equal(FOLLOW_JUMP_MIN_MS, 2_000);
   assert.equal(FOLLOW_BEARING_MIN_DEG, 6);
   assert.equal(GPS_SAVE_MIN_MS, 20_000);
-  assert.equal(RADAR_REFRESH_MS, 8 * 60 * 1000);
+  assert.equal(RADAR_REFRESH_MS, 2 * 60 * 1000);
+  assert.equal(RADAR_PLAY_WARM_RADIUS, 1);
+  assert.equal(RADAR_PLAY_WARM_TIMEOUT_MS, 2_000);
+  assert.ok(RADAR_IMAGE_CACHE_LIMIT_ANIMATED >= 10);
   assert.equal(RADAR_ANCHOR_SLOP, 0.5);
   assert.equal(MAP_TILE_CACHE_ZOOM_LEVELS, 1);
 });
