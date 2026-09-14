@@ -3,7 +3,6 @@
 import { useLayoutEffect, useRef } from "react";
 import type { Map as MapLibreMap } from "maplibre-gl";
 import { ringLabelLngLat } from "@/lib/geo";
-import { isTeslaBrowser } from "@/lib/tesla-browser";
 
 type RangeRingsOverlayProps = {
   map: MapLibreMap;
@@ -40,7 +39,7 @@ function writeCircle(
 /**
  * SVG rings sit above the radar canvas (MapLibre layers would be hidden under it).
  * Position updates are imperative — no React setState on every map `move`.
- * Tesla only listens to settle/resize/zoomend.
+ * Lean path only listens to settle/resize/zoomend.
  */
 export function RangeRingsOverlay({
   map,
@@ -56,7 +55,6 @@ export function RangeRingsOverlay({
   useLayoutEffect(() => {
     if (!visible) return;
     let raf = 0;
-    const tesla = isTeslaBrowser();
 
     const update = () => {
       const center = map.project([lon, lat]);
@@ -83,23 +81,11 @@ export function RangeRingsOverlay({
     };
 
     update();
-    if (!tesla) {
-      map.on("move", schedule);
-      map.on("rotate", schedule);
-      map.on("zoom", schedule);
-      map.on("pitch", schedule);
-    }
     map.on("moveend", schedule);
     map.on("zoomend", schedule);
     map.on("resize", schedule);
     return () => {
       if (raf) window.cancelAnimationFrame(raf);
-      if (!tesla) {
-        map.off("move", schedule);
-        map.off("rotate", schedule);
-        map.off("zoom", schedule);
-        map.off("pitch", schedule);
-      }
       map.off("moveend", schedule);
       map.off("zoomend", schedule);
       map.off("resize", schedule);

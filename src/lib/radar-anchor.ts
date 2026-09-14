@@ -13,7 +13,7 @@ export type RadarCoverAnchor = {
 export function radarAnchorStillCovers(
   prev: RadarCoverAnchor,
   next: RadarCoverAnchor,
-  slopFraction = 0.25,
+  slopFraction = 0.5,
 ): boolean {
   if (prev.size !== next.size || prev.zoom !== next.zoom) return false;
   const tileDeg = 360 / 2 ** prev.zoom;

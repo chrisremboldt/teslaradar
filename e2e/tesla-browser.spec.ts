@@ -23,7 +23,7 @@ async function seedPrefs(page: Page) {
         prefsVersion: 2,
         followMe: true,
         headingUp: false,
-        animateRadar: false,
+        animateRadar: true,
       }),
     );
   });
@@ -92,20 +92,29 @@ test.describe("Tesla browser survival", () => {
     await seedPrefs(page);
     await installPollGeo(page, seed);
     await page.context().grantPermissions(["geolocation"]);
-    await page.goto("/?tesla=1");
+    await page.goto("/?debug=1");
 
     await expect(page.locator("[data-tesla-browser=on]").first()).toBeVisible({
       timeout: 25_000,
     });
+    await expect(page.locator("[data-lean-runtime=on]").first()).toBeVisible();
     await expect(page.locator("[data-geo-watch=off]")).toBeVisible();
+    await expect(page.locator("[data-animate-radar=off]").first()).toBeVisible();
     await expect.poll(() => page.locator("html").getAttribute("class")).toMatch(/tesla-browser/);
     await expect(page.getByText(/Location poll 4 s/)).toBeVisible();
+    await expect(page.getByRole("button", { name: "Play radar" })).toBeVisible();
 
     await expect(page.locator("[data-map-root][data-map-center-lat]")).toBeVisible({
       timeout: 25_000,
     });
     await expect(page.locator("[data-map-root]")).toHaveAttribute("data-tesla-browser", "on");
+    await expect(page.locator("[data-map-root]")).toHaveAttribute("data-lean-runtime", "on");
     await expect(page.locator("[data-map-root]")).toHaveAttribute("data-map-pixel-ratio", "1");
+    await expect(page.locator("[data-map-root]")).toHaveAttribute("data-tile-cache", "8");
+    await expect(page.locator("[data-map-root]")).toHaveAttribute("data-follow-jump-ms", "2000");
+    await expect(page.locator("[data-debug-overlay=on]")).toContainText(/lean/);
+    await expect(page.locator("[data-debug-overlay=on]")).toContainText(/watch off/);
+    await expect(page.locator("[data-debug-overlay=on]")).toContainText(/animate off/);
 
     const watchCalls = await page.evaluate(
       () => (window as unknown as { __watchCalls: () => number }).__watchCalls(),
@@ -124,7 +133,14 @@ test.describe("Tesla browser survival", () => {
       .poll(async () => Number(await page.locator(".radar-overlay-canvas").getAttribute("data-radar-cache-size")), {
         timeout: 10_000,
       })
-      .toBeLessThanOrEqual(3);
+      .toBeLessThanOrEqual(1);
+    const radarIndex = await page.locator("[data-map-root]").getAttribute("data-radar-index");
+    expect(radarIndex).toBeTruthy();
+    await page.waitForTimeout(1_000);
+    await expect(page.locator("[data-map-root]")).toHaveAttribute(
+      "data-radar-index",
+      radarIndex ?? "",
+    );
     const canvasMetrics = await page.evaluate(() => {
       const overlay = document.querySelector(".radar-overlay-canvas") as HTMLCanvasElement | null;
       const gl = document.querySelector(".radar-map .maplibregl-canvas") as HTMLCanvasElement | null;

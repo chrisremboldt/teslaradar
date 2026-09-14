@@ -15,7 +15,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "TeslaRadar",
   description:
-    "Personal live weather radar for Chris Remboldt. Browser location, RainViewer overlay, compass when the device exposes it.",
+    "Personal live weather radar for Chris Remboldt. Tesla in-car browser: poll GPS, latest RainViewer frame, heading from the GPS track.",
   applicationName: "TeslaRadar",
   appleWebApp: {
     capable: true,
@@ -43,7 +43,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} tesla-browser h-full antialiased`}
     >
       <body className="h-full overflow-hidden bg-[#0b0d10] text-zinc-100">
         {children}

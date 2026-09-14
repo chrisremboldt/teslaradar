@@ -7,13 +7,11 @@ import {
   RADAR_REFRESH_MS,
 } from "@/lib/constants";
 import { fetchRainViewerCatalog } from "@/lib/rainviewer";
-import { isTeslaBrowser } from "@/lib/tesla-browser";
 import type { RadarFrame, RainViewerCatalog } from "@/lib/types";
 
 /**
- * Advances past RainViewer frames with requestAnimationFrame + elapsed time.
- * Tesla Chromium can throttle setTimeout in split-view; rAF plus a visible-tab
- * watchdog keep the footer index moving. Hidden tabs pause cleanly.
+ * Advances past RainViewer frames on a single interval, paused while hidden.
+ * Default product path is latest-frame only (`animate` false).
  */
 export function useRainViewer(animate: boolean) {
   const [catalog, setCatalog] = useState<RainViewerCatalog | null>(null);
@@ -60,7 +58,6 @@ export function useRainViewer(animate: boolean) {
     if (!animate || !catalog || catalog.frames.length < 2) return undefined;
 
     const last = catalog.frames.length - 1;
-    let raf = 0;
     let lastTs = performance.now();
     let elapsed = 0;
     let index = frameIndexRef.current;
@@ -93,47 +90,27 @@ export function useRainViewer(animate: boolean) {
       elapsed = 0;
     };
 
-    // Tesla: one interval only, paused while hidden. Phone/desktop keep rAF
-    // + a 250ms watchdog because split-view can freeze either timer by itself.
-    if (isTeslaBrowser()) {
-      let interval = 0;
-      const startPump = () => {
-        if (interval) return;
-        interval = window.setInterval(() => {
-          pump(performance.now());
-        }, RADAR_FRAME_MS);
-      };
-      const stopPump = () => {
-        window.clearInterval(interval);
-        interval = 0;
-      };
-      const onTeslaVisibility = () => {
-        onVisibility();
-        if (document.visibilityState === "visible") startPump();
-        else stopPump();
-      };
-      document.addEventListener("visibilitychange", onTeslaVisibility);
-      if (document.visibilityState === "visible") startPump();
-      return () => {
-        stopPump();
-        document.removeEventListener("visibilitychange", onTeslaVisibility);
-      };
-    }
-
-    document.addEventListener("visibilitychange", onVisibility);
-    const loop = (ts: number) => {
-      raf = window.requestAnimationFrame(loop);
-      pump(ts);
+    let interval = 0;
+    const startPump = () => {
+      if (interval) return;
+      interval = window.setInterval(() => {
+        pump(performance.now());
+      }, RADAR_FRAME_MS);
     };
-    raf = window.requestAnimationFrame(loop);
-    const watchdog = window.setInterval(() => {
-      pump(performance.now());
-    }, 250);
-
+    const stopPump = () => {
+      window.clearInterval(interval);
+      interval = 0;
+    };
+    const onTeslaVisibility = () => {
+      onVisibility();
+      if (document.visibilityState === "visible") startPump();
+      else stopPump();
+    };
+    document.addEventListener("visibilitychange", onTeslaVisibility);
+    if (document.visibilityState === "visible") startPump();
     return () => {
-      window.cancelAnimationFrame(raf);
-      window.clearInterval(watchdog);
-      document.removeEventListener("visibilitychange", onVisibility);
+      stopPump();
+      document.removeEventListener("visibilitychange", onTeslaVisibility);
     };
   }, [animate, catalog]);
 

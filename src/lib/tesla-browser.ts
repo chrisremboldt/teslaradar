@@ -1,74 +1,88 @@
 /**
- * Tesla’s in-car Qt/Chromium browser (UA still has `Tesla/` or `QtCarBrowser`).
- * `?tesla=1` opts in for Playwright / desktop debugging.
+ * TeslaRadar is Tesla-only. Every session is the lean in-car path:
+ * poll GPS, jumpTo, 1× pixels, tiny GL tile cache, latest radar frame.
  *
- * The car screen is huge (Model 3/Y ~1920×1200) and the GPU/driver is fragile:
- * WebGL2 MapLibre + a full-viewport 2D overlay + watchPosition + easeTo
- * has been enough to kill the tab.
+ * There is no phone profile and no UA / `?tesla=` mode flip. `?tesla=1`
+ * is ignored. `data-tesla-browser=on` is always set so in-car debug is obvious.
  */
-export function teslaUserAgent(ua: string): boolean {
-  return /\bTesla\//i.test(ua) || /QtCarBrowser/i.test(ua);
+export function teslaUserAgent(ua?: string): boolean {
+  void ua;
+  return true;
 }
 
-export function teslaQueryEnabled(search: string): boolean {
-  const query = search.startsWith("?") ? search.slice(1) : search;
-  return new URLSearchParams(query).get("tesla") === "1";
+export function teslaQueryEnabled(search?: string): boolean {
+  void search;
+  return true;
 }
 
+/** Always lean. Kept so existing call sites / debug attrs stay truthful. */
 export function isTeslaBrowser(input?: { userAgent?: string; search?: string }): boolean {
-  const ua = input?.userAgent ?? (typeof navigator !== "undefined" ? navigator.userAgent : "");
-  const search =
-    input?.search ?? (typeof window !== "undefined" ? window.location.search : "");
-  return teslaQueryEnabled(search) || teslaUserAgent(ua);
+  void input;
+  return true;
 }
 
 export function applyTeslaDocumentClass(
-  tesla: boolean,
+  tesla = true,
   root: Pick<Element, "classList"> | null = typeof document !== "undefined"
     ? document.documentElement
     : null,
 ): void {
-  root?.classList.toggle("tesla-browser", tesla);
+  void tesla;
+  root?.classList.add("tesla-browser");
 }
 
-/** Tesla: 1×. Phones/desktops: cap at 2× so a 3× phone does not allocate a 3× WebGL buffer. */
-export function mapPixelRatioForBrowser(tesla: boolean, devicePixelRatio: number): number {
-  if (tesla) return 1;
-  return Math.min(Math.max(devicePixelRatio || 1, 1), 2);
+export function mapPixelRatioForBrowser(
+  tesla?: boolean,
+  devicePixelRatio?: number,
+): number {
+  void tesla;
+  void devicePixelRatio;
+  return 1;
 }
 
-export function overlayPixelRatioForBrowser(tesla: boolean, devicePixelRatio: number): number {
-  return mapPixelRatioForBrowser(tesla, devicePixelRatio);
+export function overlayPixelRatioForBrowser(
+  tesla?: boolean,
+  devicePixelRatio?: number,
+): number {
+  void tesla;
+  void devicePixelRatio;
+  return 1;
 }
 
-/**
- * watchPosition + enableHighAccuracy has crashed Tesla Chromium.
- * Use getCurrentPosition on a short poll (await a recent reading) instead.
- */
-export function shouldWatchGeolocation(tesla: boolean): boolean {
-  return !tesla;
+/** watchPosition + enableHighAccuracy has crashed Tesla Chromium. */
+export function shouldWatchGeolocation(tesla?: boolean): boolean {
+  void tesla;
+  return false;
 }
 
-/** easeTo CSS-transforms the GL canvas every frame; Tesla cannot afford that. */
-export function preferJumpFollow(tesla: boolean): boolean {
-  return tesla;
+/** easeTo CSS-transforms the GL canvas every frame and OOMs the tab. */
+export function preferJumpFollow(tesla?: boolean): boolean {
+  void tesla;
+  return true;
 }
 
-/** Neighbors on each side of the playhead. Infinity = every past frame. */
-export function radarPreloadRadius(tesla: boolean): number {
-  return tesla ? 1 : Number.POSITIVE_INFINITY;
+/** Neighbors on each side of the playhead. Paused = playhead only. */
+export function radarPreloadRadius(tesla?: boolean, animate = false): number {
+  void tesla;
+  return animate ? 1 : 0;
 }
 
-/** Hard cap on decoded RainViewer bitmaps. Tesla never keeps the full catalog. */
-export function radarImageCacheLimitForBrowser(tesla: boolean): number {
-  if (!tesla) return 16;
-  return radarPreloadRadius(true) * 2 + 1;
+/** Hard cap on decoded RainViewer bitmaps. Paused = 1 (playhead). */
+export function radarImageCacheLimitForBrowser(tesla?: boolean, animate = false): number {
+  void tesla;
+  return animate ? 3 : 1;
 }
 
-export function mapMaxTileCacheSize(tesla: boolean): number | undefined {
-  return tesla ? 24 : undefined;
+export function mapMaxTileCacheSize(tesla?: boolean): number {
+  void tesla;
+  return 8;
 }
 
-export function mapMaxCanvasSize(tesla: boolean): [number, number] | undefined {
-  return tesla ? [2048, 2048] : undefined;
+export function mapMaxTileCacheZoomLevels(): number {
+  return 1;
+}
+
+export function mapMaxCanvasSize(tesla?: boolean): [number, number] {
+  void tesla;
+  return [2048, 2048];
 }

@@ -1,5 +1,7 @@
 export const DEFAULT_FOLLOW_JUMP_METERS = 500;
 export const DEFAULT_USER_PAN_MIN_PX = 16;
+export const DEFAULT_FOLLOW_JUMP_MIN_MS = 2_000;
+export const DEFAULT_FOLLOW_BEARING_MIN_DEG = 6;
 
 export type LngLat = { lat: number; lon: number };
 
@@ -10,7 +12,7 @@ function distanceMeters(from: LngLat, to: LngLat): number {
   return Math.hypot(dLat, dLon);
 }
 
-export type FollowCameraMode = "ease" | "jump" | "bearing-only";
+export type FollowCameraMode = "jump" | "bearing-only";
 
 export type FollowCameraPlan = {
   center?: [number, number];
@@ -27,7 +29,7 @@ export function planFollowCamera(input: {
   positionChanged: boolean;
   followJustEnabled: boolean;
   jumpMeters?: number;
-  /** Tesla: never easeTo — CSS-transforming the GL canvas every frame OOMs the tab. */
+  /** Ignored — lean path always jumps. Kept so older call sites still type-check. */
   preferJump?: boolean;
 }): FollowCameraPlan {
   const { bearing } = input;
@@ -36,26 +38,39 @@ export function planFollowCamera(input: {
   }
 
   const center: [number, number] = [input.ownship.lon, input.ownship.lat];
-  const mustRecenter =
-    input.firstLock || input.followJustEnabled || input.positionChanged;
-  if (!mustRecenter) {
-    // Heading-up ticks: rotate around ownship, do not drift the planted chevron.
-    return { center, bearing, mode: "jump" };
-  }
-
-  const distanceM = distanceMeters(input.mapCenter, input.ownship);
-  const jumpMeters = input.jumpMeters ?? DEFAULT_FOLLOW_JUMP_METERS;
-  if (input.firstLock || distanceM >= jumpMeters || input.preferJump) {
-    return { center, bearing, mode: "jump" };
-  }
-  return { center, bearing, mode: "ease" };
+  return { center, bearing, mode: "jump" };
 }
 
 export function shortestBearingDelta(from: number, to: number): number {
   return ((((to - from) % 360) + 540) % 360) - 180;
 }
 
-/** Skip jumpTo/easeTo when the camera is already on the follow plan. */
+/**
+ * Lean follow: jumpTo at most 0.5 Hz. First lock / re-enable Following
+ * always apply. After that, wait 2s and only then recenter, or rotate
+ * when heading changed ≥ ~6°.
+ */
+export function shouldApplyFollowJump(input: {
+  now: number;
+  lastApplyAt: number | null;
+  firstLock: boolean;
+  followJustEnabled: boolean;
+  positionChanged: boolean;
+  bearingDeltaDeg: number;
+  minIntervalMs?: number;
+  minBearingDeg?: number;
+  force?: boolean;
+}): boolean {
+  if (input.force || input.firstLock || input.followJustEnabled) return true;
+  if (input.lastApplyAt == null) return true;
+  const elapsed = input.now - input.lastApplyAt;
+  const minInterval = input.minIntervalMs ?? DEFAULT_FOLLOW_JUMP_MIN_MS;
+  if (elapsed < minInterval) return false;
+  const minBearing = input.minBearingDeg ?? DEFAULT_FOLLOW_BEARING_MIN_DEG;
+  return input.positionChanged || Math.abs(input.bearingDeltaDeg) >= minBearing;
+}
+
+/** Skip jumpTo when the camera is already on the follow plan. */
 export function isCameraOnTarget(input: {
   mapCenter: LngLat;
   mapBearing: number;
@@ -84,7 +99,7 @@ export function isMeaningfulUserPan(
 }
 
 /**
- * Programmatic easeTo/jumpTo must never look like a user pan.
+ * Programmatic jumpTo must never look like a user pan.
  * Tesla jitter below minPixels is ignored even when originalEvent exists.
  */
 export function shouldTreatAsUserPan(input: {
@@ -98,4 +113,9 @@ export function shouldTreatAsUserPan(input: {
   if (!input.hasOriginalEvent) return false;
   if (!input.start) return false;
   return isMeaningfulUserPan(input.start, input.end, input.minPixels);
+}
+
+/** Exported so tests can see unused hop math still matches FOLLOW_JUMP_METERS. */
+export function followHopMeters(from: LngLat, to: LngLat): number {
+  return distanceMeters(from, to);
 }

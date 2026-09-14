@@ -7,22 +7,9 @@ test("TESLA_OVERLAY_MIN_DRAW_MS is ~8 fps", () => {
   assert.equal(TESLA_OVERLAY_MIN_DRAW_MS, 125);
 });
 
-test("phone always draws when visible", () => {
-  assert.equal(
-    shouldDrawRadarOverlay({
-      tesla: false,
-      reason: "move",
-      lastDrawAt: 0,
-      now: 10,
-    }),
-    true,
-  );
-});
-
 test("hidden tab never paints", () => {
   assert.equal(
     shouldDrawRadarOverlay({
-      tesla: true,
       reason: "frame",
       lastDrawAt: null,
       now: 1,
@@ -32,10 +19,10 @@ test("hidden tab never paints", () => {
   );
 });
 
-test("Tesla move is throttled; frame/settle/preload always draw", () => {
+test("move is throttled; frame/settle/preload always draw", () => {
   assert.equal(
     shouldDrawRadarOverlay({
-      tesla: true,
+      tesla: false,
       reason: "move",
       lastDrawAt: 1_000,
       now: 1_000 + 40,
@@ -45,7 +32,6 @@ test("Tesla move is throttled; frame/settle/preload always draw", () => {
   );
   assert.equal(
     shouldDrawRadarOverlay({
-      tesla: true,
       reason: "move",
       lastDrawAt: 1_000,
       now: 1_000 + TESLA_OVERLAY_MIN_DRAW_MS,
@@ -56,7 +42,6 @@ test("Tesla move is throttled; frame/settle/preload always draw", () => {
   for (const reason of ["frame", "settle", "resize", "preload", "force"] as const) {
     assert.equal(
       shouldDrawRadarOverlay({
-        tesla: true,
         reason,
         lastDrawAt: 1_000,
         now: 1_010,

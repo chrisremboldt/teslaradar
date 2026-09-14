@@ -55,9 +55,10 @@ test("clearRadarImageCache releases every image", () => {
   assert.equal(a.src, "");
 });
 
-test("Tesla cache limit is 3; phone is capped at 16", () => {
-  assert.equal(radarImageCacheLimit(true), 3);
-  assert.equal(radarImageCacheLimit(true, 12), 3);
-  assert.equal(radarImageCacheLimit(false, 12), 12);
-  assert.equal(radarImageCacheLimit(false, 40), 16);
+test("lean cache limit is 1 paused / 3 animated — never a full catalog", () => {
+  assert.equal(radarImageCacheLimit(true), 1);
+  assert.equal(radarImageCacheLimit(true, 1), 1);
+  assert.equal(radarImageCacheLimit(true, 3), 3);
+  assert.equal(radarImageCacheLimit(false, 12), 3);
+  assert.equal(radarImageCacheLimit(false, 40), 3);
 });

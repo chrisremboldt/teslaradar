@@ -11,7 +11,7 @@ import { useRainViewer } from "@/hooks/useRainViewer";
 import { useReverseGeocode } from "@/hooks/useReverseGeocode";
 import { useOwnshipTrack } from "@/hooks/useOwnshipTrack";
 import { NOMINATIM_ATTRIBUTION } from "@/lib/constants";
-import { applyTeslaDocumentClass, isTeslaBrowser } from "@/lib/tesla-browser";
+import { applyTeslaDocumentClass } from "@/lib/tesla-browser";
 import {
   formatAccuracy,
   formatClock,
@@ -68,15 +68,13 @@ export function RadarDashboard() {
     return Number.isFinite(value) ? value : null;
   }, [searchParams]);
 
-  const tesla = isTeslaBrowser();
   const debug = searchParams.get("debug") === "1";
   const [debugLine, setDebugLine] = useState("");
   const { prefs, update } = usePreferences();
+  const animateRadar = prefs.animateRadar;
   const { fix, error, isRefreshing, hasResolved, refresh, applyDemo, watching, pollIntervalMs } =
-    useGeolocation({
-      continuous: prefs.followMe,
-    });
-  const radar = useRainViewer(prefs.animateRadar);
+    useGeolocation();
+  const radar = useRainViewer(animateRadar);
   const compass = useCompass(simulatedHeading);
   const ownship = useOwnshipTrack(fix);
   const trackHeading = ownship.heading;
@@ -89,9 +87,8 @@ export function RadarDashboard() {
   }, []);
 
   useEffect(() => {
-    applyTeslaDocumentClass(tesla);
-    return () => applyTeslaDocumentClass(false);
-  }, [tesla]);
+    applyTeslaDocumentClass();
+  }, []);
 
   useEffect(() => {
     if (!debug) return undefined;
@@ -102,13 +99,13 @@ export function RadarDashboard() {
         return;
       }
       setDebugLine(
-        `cache ${el.getAttribute("data-radar-cache-size") ?? "?"} · draw ${el.getAttribute("data-radar-draw-reason") ?? "?"}`,
+        `lean · watch ${watching ? "on" : "off"} · animate ${animateRadar ? "on" : "off"} · cache ${el.getAttribute("data-radar-cache-size") ?? "?"} · draw ${el.getAttribute("data-radar-draw-reason") ?? "?"}`,
       );
     };
     tick();
     const timer = window.setInterval(tick, 1000);
     return () => window.clearInterval(timer);
-  }, [debug]);
+  }, [animateRadar, debug, watching]);
 
   const mapHeading = compass.heading ?? trackHeading;
   const headingUpActive = prefs.headingUp && mapHeading != null;
@@ -122,8 +119,10 @@ export function RadarDashboard() {
   return (
     <div
       className="relative h-dvh w-full overflow-hidden overflow-x-hidden bg-[#0b0d10] text-zinc-100"
-      data-tesla-browser={tesla ? "on" : "off"}
+      data-tesla-browser="on"
+      data-lean-runtime="on"
       data-geo-watch={watching ? "on" : "off"}
+      data-animate-radar={animateRadar ? "on" : "off"}
     >
       {fix ? (
         <RadarMap
@@ -136,6 +135,7 @@ export function RadarDashboard() {
           range30m={ownship.range30m}
           followMe={prefs.followMe}
           headingUp={headingUpActive}
+          animateRadar={animateRadar}
           radarHost={radar.catalog?.host ?? null}
           radarFrames={radar.frames}
           radarFrameIndex={radar.frameIndex}
@@ -271,8 +271,7 @@ export function RadarDashboard() {
         </pre>
       ) : null}
 
-      {compass.heading != null &&
-      (compass.status === "available" || compass.status === "simulated") ? (
+      {compass.heading != null && compass.status === "simulated" ? (
         <div className="pointer-events-none absolute right-2 top-[min(34vh,16rem)] z-10 sm:right-3 sm:top-[min(42vh,22rem)]">
           <CompassBadge heading={compass.heading} status={compass.status} />
         </div>
@@ -301,14 +300,14 @@ export function RadarDashboard() {
             </button>
             <button
               type="button"
-              className={`hud-btn ${prefs.animateRadar ? "hud-btn-on" : ""}`}
-              aria-label={prefs.animateRadar ? "Pause radar" : "Play radar"}
-              onClick={() => update({ animateRadar: !prefs.animateRadar })}
+              className={`hud-btn ${animateRadar ? "hud-btn-on" : ""}`}
+              aria-label={animateRadar ? "Pause radar" : "Play radar"}
+              onClick={() => update({ animateRadar: !animateRadar })}
               disabled={!radar.frames.length}
             >
-              <span className="sm:hidden">{prefs.animateRadar ? "Pause" : "Play"}</span>
+              <span className="sm:hidden">{animateRadar ? "Pause" : "Play"}</span>
               <span className="hidden sm:inline">
-                {prefs.animateRadar ? "Pause radar" : "Play radar"}
+                {animateRadar ? "Pause radar" : "Play radar"}
               </span>
             </button>
             <button

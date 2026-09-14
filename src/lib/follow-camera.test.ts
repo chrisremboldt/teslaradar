@@ -1,9 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { FOLLOW_JUMP_METERS, USER_PAN_MIN_PX } from "./constants.ts";
+import {
+  FOLLOW_BEARING_MIN_DEG,
+  FOLLOW_JUMP_METERS,
+  FOLLOW_JUMP_MIN_MS,
+  USER_PAN_MIN_PX,
+} from "./constants.ts";
 import {
   isCameraOnTarget,
   planFollowCamera,
+  shouldApplyFollowJump,
   shouldTreatAsUserPan,
 } from "./follow-camera.ts";
 
@@ -16,11 +22,13 @@ function northOf(lat: number, meters: number): number {
 test("FOLLOW_JUMP_METERS and USER_PAN_MIN_PX stay in the classic-nav range", () => {
   assert.equal(FOLLOW_JUMP_METERS, 500);
   assert.equal(USER_PAN_MIN_PX, 16);
+  assert.equal(FOLLOW_JUMP_MIN_MS, 2_000);
+  assert.equal(FOLLOW_BEARING_MIN_DEG, 6);
 });
 
-test("preferJump turns a modest follow hop into a jump (Tesla)", () => {
+test("preferJump / modest hops / teleports all jump (lean path, no easeTo)", () => {
   const ownship = { lat: northOf(NASHVILLE.lat, 120), lon: NASHVILLE.lon };
-  const plan = planFollowCamera({
+  const modest = planFollowCamera({
     followMe: true,
     ownship,
     mapCenter: NASHVILLE,
@@ -29,31 +37,11 @@ test("preferJump turns a modest follow hop into a jump (Tesla)", () => {
     positionChanged: true,
     followJustEnabled: false,
     jumpMeters: FOLLOW_JUMP_METERS,
-    preferJump: true,
+    preferJump: false,
   });
-  assert.equal(plan.mode, "jump");
-  assert.deepEqual(plan.center, [ownship.lon, ownship.lat]);
-});
+  assert.equal(modest.mode, "jump");
+  assert.deepEqual(modest.center, [ownship.lon, ownship.lat]);
 
-test("followMe recenters on a new GPS fix (ease for a modest hop)", () => {
-  const ownship = { lat: northOf(NASHVILLE.lat, 120), lon: NASHVILLE.lon };
-  const plan = planFollowCamera({
-    followMe: true,
-    ownship,
-    mapCenter: NASHVILLE,
-    bearing: 0,
-    firstLock: false,
-    positionChanged: true,
-    followJustEnabled: false,
-    jumpMeters: FOLLOW_JUMP_METERS,
-  });
-  assert.equal(plan.mode, "ease");
-  assert.deepEqual(plan.center, [ownship.lon, ownship.lat]);
-  assert.equal(plan.bearing, 0);
-});
-
-test("followMe jumps on first lock or a teleport", () => {
-  const far = { lat: northOf(NASHVILLE.lat, 8_000), lon: NASHVILLE.lon };
   const first = planFollowCamera({
     followMe: true,
     ownship: NASHVILLE,
@@ -66,6 +54,7 @@ test("followMe jumps on first lock or a teleport", () => {
   assert.equal(first.mode, "jump");
   assert.deepEqual(first.center, [NASHVILLE.lon, NASHVILLE.lat]);
 
+  const far = { lat: northOf(NASHVILLE.lat, 8_000), lon: NASHVILLE.lon };
   const teleport = planFollowCamera({
     followMe: true,
     ownship: far,
@@ -125,7 +114,82 @@ test("re-enabling Following after a pan recenters on ownship", () => {
   });
   assert.ok(plan.center);
   assert.deepEqual(plan.center, [NASHVILLE.lon, NASHVILLE.lat]);
-  assert.ok(plan.mode === "ease" || plan.mode === "jump");
+  assert.equal(plan.mode, "jump");
+});
+
+test("follow jump throttle is ≤0.5 Hz except first lock / re-enable", () => {
+  assert.equal(
+    shouldApplyFollowJump({
+      now: 1_000,
+      lastApplyAt: null,
+      firstLock: true,
+      followJustEnabled: false,
+      positionChanged: true,
+      bearingDeltaDeg: 0,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldApplyFollowJump({
+      now: 1_500,
+      lastApplyAt: 1_000,
+      firstLock: false,
+      followJustEnabled: false,
+      positionChanged: true,
+      bearingDeltaDeg: 20,
+      minIntervalMs: FOLLOW_JUMP_MIN_MS,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldApplyFollowJump({
+      now: 1_000 + FOLLOW_JUMP_MIN_MS,
+      lastApplyAt: 1_000,
+      firstLock: false,
+      followJustEnabled: false,
+      positionChanged: true,
+      bearingDeltaDeg: 0,
+      minIntervalMs: FOLLOW_JUMP_MIN_MS,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldApplyFollowJump({
+      now: 1_000 + FOLLOW_JUMP_MIN_MS,
+      lastApplyAt: 1_000,
+      firstLock: false,
+      followJustEnabled: false,
+      positionChanged: false,
+      bearingDeltaDeg: 2,
+      minIntervalMs: FOLLOW_JUMP_MIN_MS,
+      minBearingDeg: FOLLOW_BEARING_MIN_DEG,
+    }),
+    false,
+  );
+  assert.equal(
+    shouldApplyFollowJump({
+      now: 1_000 + FOLLOW_JUMP_MIN_MS,
+      lastApplyAt: 1_000,
+      firstLock: false,
+      followJustEnabled: false,
+      positionChanged: false,
+      bearingDeltaDeg: 8,
+      minIntervalMs: FOLLOW_JUMP_MIN_MS,
+      minBearingDeg: FOLLOW_BEARING_MIN_DEG,
+    }),
+    true,
+  );
+  assert.equal(
+    shouldApplyFollowJump({
+      now: 1_100,
+      lastApplyAt: 1_000,
+      firstLock: false,
+      followJustEnabled: true,
+      positionChanged: false,
+      bearingDeltaDeg: 0,
+    }),
+    true,
+  );
 });
 
 test("isCameraOnTarget skips a no-op follow jump", () => {

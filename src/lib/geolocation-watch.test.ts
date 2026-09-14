@@ -8,12 +8,12 @@ test("GEO_WATCH_MAXIMUM_AGE_MS is ~1s so follow can reuse a fresh reading", () =
   assert.ok(GEO_WATCH_MAXIMUM_AGE_MS < LOCATION_POLL_MS);
 });
 
-test("skip the 1-minute poll while watchPosition is delivering", () => {
+test("skip a redundant poll while a watch would still be fresh", () => {
   assert.equal(
     shouldSkipPoll({
       watchActive: true,
       lastWatchAt: 10_000,
-      now: 10_000 + 5_000,
+      now: 10_000 + 1_000,
       pollIntervalMs: LOCATION_POLL_MS,
     }),
     true,

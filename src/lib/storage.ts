@@ -1,8 +1,10 @@
 import {
   CURRENT_PREFS_VERSION,
+  GPS_SAVE_MIN_MS,
   LOCATION_STORAGE_KEY,
   PREFS_STORAGE_KEY,
 } from "@/lib/constants";
+import { shouldPersistCachedGps } from "@/lib/gps-persist";
 import { normalizeEpochMs } from "@/lib/time";
 import type { GeoFix, UserPrefs } from "@/lib/types";
 
@@ -10,7 +12,7 @@ export const DEFAULT_PREFS: UserPrefs = {
   prefsVersion: CURRENT_PREFS_VERSION,
   followMe: true,
   headingUp: true,
-  animateRadar: true,
+  animateRadar: false,
 };
 
 /**
@@ -21,13 +23,13 @@ export const DEFAULT_PREFS: UserPrefs = {
  * unfollowed even though `DEFAULT_PREFS.followMe` is true.
  *
  * On load, stored version < 2 is migrated once: `followMe` is forced true
- * (headingUp / animateRadar kept) and `prefsVersion` is written to 2. This
- * re-enables follow for drivers who had it stuck off.
+ * and `prefsVersion` is written to 2. This re-enables follow for drivers
+ * who had it stuck off.
  *
- * Every cold load also starts followed — `followMe: false` is a session
- * choice after the user pans or taps Follow me off, not a durable pref.
- * `savePrefs` still persists the off state so we do not fight mid-drive
- * (in-memory snapshot + `prefsHydrated`). A full reload recenters.
+ * Every cold load also starts followed and on the latest radar frame —
+ * `followMe: false` / `animateRadar: true` are session choices after the
+ * user pans, taps Follow me off, or taps Play. `savePrefs` still persists
+ * those so we do not fight mid-drive. A full reload recenters and pauses.
  */
 export function storedPrefsVersion(parsed: Partial<UserPrefs>): number {
   return typeof parsed.prefsVersion === "number" && Number.isFinite(parsed.prefsVersion)
@@ -44,7 +46,8 @@ export function normalizeStoredPrefs(parsed: Partial<UserPrefs>): UserPrefs {
     // hydrate — we do not flip follow back on mid-drive.
     followMe: true,
     headingUp: parsed.headingUp ?? DEFAULT_PREFS.headingUp,
-    animateRadar: parsed.animateRadar ?? DEFAULT_PREFS.animateRadar,
+    // Cold load / hard refresh: latest frame only. Play is a session choice.
+    animateRadar: false,
   };
 }
 
@@ -54,6 +57,7 @@ const prefsListeners = new Set<() => void>();
 
 let gpsSnapshot: GeoFix | null = null;
 let gpsHydrated = false;
+let lastGpsPersistAt: number | null = null;
 const gpsListeners = new Set<() => void>();
 
 function emit(listeners: Set<() => void>) {
@@ -99,9 +103,19 @@ export function getCachedGpsSnapshot(): GeoFix | null {
   return gpsSnapshot;
 }
 
-export function saveCachedGps(fix: GeoFix): void {
+export function saveCachedGps(fix: GeoFix, now = Date.now()): void {
   if (typeof window === "undefined") return;
   if (fix.source !== "gps") return;
+  gpsSnapshot = {
+    lat: fix.lat,
+    lon: fix.lon,
+    accuracy: fix.accuracy,
+    timestamp: fix.timestamp,
+    source: "cached",
+  };
+  gpsHydrated = true;
+  if (!shouldPersistCachedGps(lastGpsPersistAt, now, GPS_SAVE_MIN_MS)) return;
+  lastGpsPersistAt = now;
   try {
     window.localStorage.setItem(
       LOCATION_STORAGE_KEY,
@@ -113,14 +127,6 @@ export function saveCachedGps(fix: GeoFix): void {
         source: "gps",
       }),
     );
-    gpsSnapshot = {
-      lat: fix.lat,
-      lon: fix.lon,
-      accuracy: fix.accuracy,
-      timestamp: fix.timestamp,
-      source: "cached",
-    };
-    gpsHydrated = true;
     emit(gpsListeners);
   } catch {
     // Quota or private mode — ignore.
